@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, Plus, Trash2, Edit2, X, Loader2 } from 'lucide-react';
+import { Star, Plus, Trash2, Edit2, X, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface Temoignage {
@@ -8,6 +8,7 @@ interface Temoignage {
   nom: string;
   note: number;
   texte: string;
+  actif: boolean;
   created_at: string;
 }
 
@@ -17,6 +18,7 @@ export default function Temoignages() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'actifs' | 'attente'>('actifs');
   
   // Form State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -24,6 +26,9 @@ export default function Temoignages() {
   const [note, setNote] = useState(5);
   const [hoveredNote, setHoveredNote] = useState(0);
   const [texte, setTexte] = useState('');
+
+  const temoignagesActifs = temoignages.filter(t => t.actif);
+  const temoignagesEnAttente = temoignages.filter(t => !t.actif);
 
   useEffect(() => {
     fetchTemoignages();
@@ -76,7 +81,8 @@ export default function Temoignages() {
       const payload = {
         nom: nomClient.trim(),
         note,
-        texte: texte.trim()
+        texte: texte.trim(),
+        actif: true // Auto validate admin-added testimonials
       };
 
       if (editingId) {
@@ -137,6 +143,44 @@ export default function Temoignages() {
     }
   };
 
+  const handleValider = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('temoignages')
+        .update({ actif: true })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setTemoignages(prev => 
+        prev.map(t => t.id === id ? { ...t, actif: true } : t)
+      );
+      showToast('Témoignage validé avec succès');
+    } catch (error) {
+      console.error('Error validating temoignage:', error);
+      showToast('Erreur lors de la validation');
+    }
+  };
+
+  const handleDesactiver = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('temoignages')
+        .update({ actif: false })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setTemoignages(prev => 
+        prev.map(t => t.id === id ? { ...t, actif: false } : t)
+      );
+      showToast('Témoignage désactivé avec succès');
+    } catch (error) {
+      console.error('Error deactivating temoignage:', error);
+      showToast('Erreur lors de la désactivation');
+    }
+  };
+
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3000);
@@ -168,13 +212,15 @@ export default function Temoignages() {
     visible: { opacity: 1, y: 0 }
   };
 
+  const currentList = activeTab === 'actifs' ? temoignagesActifs : temoignagesEnAttente;
+
   return (
     <div className="min-h-screen bg-[#F8F8F8] p-4 md:p-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Gestion des Témoignages</h1>
-          <p className="text-gray-500 mt-1">{temoignages.length} témoignage(s)</p>
+          <p className="text-gray-500 mt-1">{temoignages.length} témoignage(s) au total</p>
         </div>
         <button
           onClick={openAddModal}
@@ -185,19 +231,50 @@ export default function Temoignages() {
         </button>
       </div>
 
+      {/* Onglets */}
+      <div className="flex border-b border-gray-200 mb-8 space-x-8">
+        <button
+          onClick={() => setActiveTab('actifs')}
+          className={`pb-4 text-sm font-medium transition-colors relative ${
+            activeTab === 'actifs' ? 'text-[#E91E8C]' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Témoignages actifs
+          {activeTab === 'actifs' && (
+            <span className="absolute bottom-0 left-0 w-full h-0.5 bg-[#E91E8C] rounded-t-full" />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('attente')}
+          className={`pb-4 text-sm font-medium transition-colors relative flex items-center gap-2 ${
+            activeTab === 'attente' ? 'text-[#E91E8C]' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          En attente de validation
+          {temoignagesEnAttente.length > 0 && (
+            <span className="bg-red-500 text-white text-xs py-0.5 px-2 rounded-full">
+              {temoignagesEnAttente.length}
+            </span>
+          )}
+          {activeTab === 'attente' && (
+            <span className="absolute bottom-0 left-0 w-full h-0.5 bg-[#E91E8C] rounded-t-full" />
+          )}
+        </button>
+      </div>
+
       {/* Grid */}
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
           <Loader2 className="w-8 h-8 animate-spin text-[#E91E8C]" />
         </div>
-      ) : temoignages.length > 0 ? (
+      ) : currentList.length > 0 ? (
         <motion.div 
           variants={containerVariants}
           initial="hidden"
           animate="visible"
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
         >
-          {temoignages.map((temoignage) => (
+          {currentList.map((temoignage) => (
             <motion.div
               key={temoignage.id}
               variants={itemVariants}
@@ -219,22 +296,49 @@ export default function Temoignages() {
                     ))}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => openEditModal(temoignage)}
-                    className="p-2 text-[#E91E8C] bg-pink-50 rounded-full hover:bg-pink-100 transition-colors"
-                    title="Modifier"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(temoignage.id)}
-                    className="p-2 text-red-500 bg-red-50 rounded-full hover:bg-red-100 transition-colors"
-                    title="Supprimer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                
+                {activeTab === 'actifs' ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDesactiver(temoignage.id)}
+                      className="p-2 text-orange-500 bg-orange-50 rounded-full hover:bg-orange-100 transition-colors"
+                      title="Désactiver"
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => openEditModal(temoignage)}
+                      className="p-2 text-[#E91E8C] bg-pink-50 rounded-full hover:bg-pink-100 transition-colors"
+                      title="Modifier"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(temoignage.id)}
+                      className="p-2 text-red-500 bg-red-50 rounded-full hover:bg-red-100 transition-colors"
+                      title="Supprimer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleValider(temoignage.id)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 rounded-md hover:bg-green-100 transition-colors"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Valider
+                    </button>
+                    <button
+                      onClick={() => handleDelete(temoignage.id)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Supprimer
+                    </button>
+                  </div>
+                )}
               </div>
               
               <p className="text-gray-600 flex-grow italic mb-4">
@@ -253,17 +357,23 @@ export default function Temoignages() {
           <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
             <Star className="w-10 h-10 text-gray-400" />
           </div>
-          <h3 className="text-xl font-bold text-gray-800 mb-2">Aucun témoignage</h3>
+          <h3 className="text-xl font-bold text-gray-800 mb-2">
+            {activeTab === 'actifs' ? 'Aucun témoignage actif' : 'Aucun témoignage en attente'}
+          </h3>
           <p className="text-gray-500 mb-6 max-w-md">
-            Ajoutez le premier avis client pour rassurer vos futurs visiteurs sur la qualité de vos services.
+            {activeTab === 'actifs' 
+              ? 'Ajoutez le premier avis client pour rassurer vos futurs visiteurs sur la qualité de vos services.'
+              : "Tous les témoignages ont été traités. Vous n'avez aucune validation en attente."}
           </p>
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-6 py-3 bg-[#E91E8C] text-white rounded-full hover:bg-[#D81B82] transition-colors font-medium shadow-md"
-          >
-            <Plus className="w-5 h-5" />
-            Ajouter un avis
-          </button>
+          {activeTab === 'actifs' && (
+            <button
+              onClick={openAddModal}
+              className="flex items-center gap-2 px-6 py-3 bg-[#E91E8C] text-white rounded-full hover:bg-[#D81B82] transition-colors font-medium shadow-md"
+            >
+              <Plus className="w-5 h-5" />
+              Ajouter un avis
+            </button>
+          )}
         </div>
       )}
 
