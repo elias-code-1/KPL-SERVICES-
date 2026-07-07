@@ -35,6 +35,7 @@ export default function TestimonialsSection() {
         const { data, error } = await supabase
           .from('temoignages')
           .select('*')
+          .eq('actif', true)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
