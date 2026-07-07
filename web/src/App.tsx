@@ -13,6 +13,7 @@ import Equipe from './pages/Equipe';
 import Contact from './pages/Contact';
 import Reservation from './pages/Reservation';
 import NotFound from './pages/NotFound';
+import AvisClient from './pages/AvisClient';
 
 function TitleUpdater() {
   const location = useLocation();
@@ -31,6 +32,7 @@ function TitleUpdater() {
       case '/equipe': title = 'Équipe'; break;
       case '/contact': title = 'Contact'; break;
       case '/reservation': title = 'Réservation'; break;
+      case '/avis': title = 'Laissez votre avis'; break;
       case '/404': title = 'Page introuvable'; break;
       default: title = 'Accueil';
     }
@@ -59,6 +61,7 @@ function App() {
     <Router>
       <TitleUpdater />
       <Routes>
+        <Route path="/avis" element={<AvisClient />} />
         <Route element={<PublicLayout />}>
           <Route path="/" element={<Accueil />} />
           <Route path="/a-propos" element={<APropos />} />
