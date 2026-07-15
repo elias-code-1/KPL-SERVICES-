@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Outlet, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Outlet, useLocation, Link } from 'react-router-dom';
 import { useEffect } from 'react';
 import { Navbar, Footer } from './components/layout';
 import { WhatsAppButton } from './components/ui';
@@ -12,8 +12,25 @@ import Galerie from './pages/Galerie';
 import Equipe from './pages/Equipe';
 import Contact from './pages/Contact';
 import Reservation from './pages/Reservation';
-import NotFound from './pages/NotFound';
 import AvisClient from './pages/AvisClient';
+
+function Simple404() {
+  useEffect(() => {
+    document.title = "404 - Page non trouvée";
+  }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-center px-4">
+      <h1 className="text-4xl font-bold text-gray-900 mb-4">404 - Page non trouvée</h1>
+      <Link 
+        to="/" 
+        className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-[#E91E8C] hover:bg-pink-600 transition-colors"
+      >
+        Retour vers l'accueil
+      </Link>
+    </div>
+  );
+}
 
 function TitleUpdater() {
   const location = useLocation();
@@ -72,8 +89,8 @@ function App() {
           <Route path="/equipe" element={<Equipe />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/reservation" element={<Reservation />} />
-          <Route path="*" element={<NotFound />} />
         </Route>
+        <Route path="*" element={<Simple404 />} />
       </Routes>
     </Router>
   );
