@@ -56,31 +56,14 @@ function AdminLayoutWrapper() {
 
 function App() {
   return (
-    <Router>
-      <TitleUpdater />
-      <Routes>
-        <Route element={<AdminLayoutWrapper />}>
-          <Route path="/" element={<Login />} />
-          <Route path="/update-password" element={<UpdatePassword />} />
-          
-          <Route 
-            element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/reservations" element={<Reservations />} />
-            <Route path="/messages" element={<Messages />} />
-            <Route path="/realisations" element={<AdminRealisations />} />
-            <Route path="/galerie" element={<AdminGalerie />} />
-            <Route path="/temoignages" element={<Temoignages />} />
-            <Route path="/parametres" element={<Parametres />} />
-          </Route>
-        </Route>
-      </Routes>
-    </Router>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', width: '100%', backgroundColor: '#f9fafb', color: '#111827', textAlign: 'center', padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      <div style={{ maxWidth: '600px', backgroundColor: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', color: '#ef4444' }}>Service Indisponible</h1>
+        <p style={{ fontSize: '18px', lineHeight: '1.6', color: '#4b5563' }}>
+          Impossible de contacter le serveur. Veuillez contacter le propriétaire du site, merci.
+        </p>
+      </div>
+    </div>
   );
 }
 
