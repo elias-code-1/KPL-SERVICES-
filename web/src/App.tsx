@@ -75,14 +75,24 @@ function PublicLayout() {
 
 function App() {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', width: '100%', backgroundColor: '#f9fafb', color: '#111827', textAlign: 'center', padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <div style={{ maxWidth: '600px', backgroundColor: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', color: '#ef4444' }}>Service Indisponible</h1>
-        <p style={{ fontSize: '18px', lineHeight: '1.6', color: '#4b5563' }}>
-          Impossible de contacter le serveur. Veuillez contacter le propriétaire du site, merci.
-        </p>
-      </div>
-    </div>
+    <Router>
+      <TitleUpdater />
+      <Routes>
+        <Route path="/avis" element={<AvisClient />} />
+        <Route element={<PublicLayout />}>
+          <Route path="/" element={<Accueil />} />
+          <Route path="/a-propos" element={<APropos />} />
+          <Route path="/services" element={<Services />} />
+          <Route path="/tarifs" element={<Tarifs />} />
+          <Route path="/realisations" element={<Realisations />} />
+          <Route path="/galerie" element={<Galerie />} />
+          <Route path="/equipe" element={<Equipe />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/reservation" element={<Reservation />} />
+        </Route>
+        <Route path="*" element={<Simple404 />} />
+      </Routes>
+    </Router>
   );
 }
 
