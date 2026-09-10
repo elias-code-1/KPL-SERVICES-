@@ -26,6 +26,7 @@ export function Footer() {
     { name: t('nav.gallery'), path: '/galerie' },
     { name: t('nav.team'), path: '/equipe' },
     { name: t('nav.contact'), path: '/contact' },
+    { name: t('nav.review'), path: '/avis' },
     { name: t('nav.book'), path: '/reservation' },
   ];
 

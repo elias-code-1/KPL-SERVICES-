@@ -24,6 +24,7 @@ export function Navbar() {
     { name: t('nav.gallery'), path: '/galerie' },
     { name: t('nav.team'), path: '/equipe' },
     { name: t('nav.contact'), path: '/contact' },
+    { name: t('nav.review'), path: '/avis' },
   ];
 
   const closeMenu = () => setIsOpen(false);
@@ -45,15 +46,15 @@ export function Navbar() {
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center justify-center flex-1 px-8">
-            <div className="flex space-x-6">
+          <div className="hidden lg:flex items-center justify-center flex-1 px-4 xl:px-8">
+            <div className="flex space-x-3.5 xl:space-x-5 2xl:space-x-6">
               {navLinks.map((link) => {
                 const isActive = location.pathname === link.path;
                 return (
                   <Link
                     key={link.path}
                     to={link.path}
-                    className={`text-sm font-medium transition-colors duration-200 ${
+                    className={`text-sm font-medium transition-colors duration-200 whitespace-nowrap ${
                       isActive
                         ? 'text-primary border-b-2 border-primary pb-1'
                         : 'text-text-gray hover:text-primary pb-1 border-b-2 border-transparent'
