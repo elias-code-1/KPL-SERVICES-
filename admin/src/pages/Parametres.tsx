@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Bell, Globe, Lock, CheckCircle2, XCircle, AlertTriangle, Loader2, Gift, Sparkles, ExternalLink } from 'lucide-react';
+import { User, Bell, Globe, Lock, CheckCircle2, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNotifications } from '../hooks/useNotifications';
 
@@ -17,35 +17,6 @@ export default function Parametres() {
 
   // Notifications
   const { permission, isSupported, requestPermission, sendNotification } = useNotifications();
-
-  // Thème de Noël
-  const [christmasConfig, setChristmasConfig] = useState(() => {
-    try {
-      const saved = localStorage.getItem('kpl_christmas_config');
-      return saved ? JSON.parse(saved) : {
-        isEnabled: true,
-        bannerText: " Féerie de Noël chez KPL SERVICES : Réservez vos surprises & décorations de fin d'année !",
-        showSnow: true,
-        highlightPacks: true,
-      };
-    } catch {
-      return {
-        isEnabled: true,
-        bannerText: " Féerie de Noël chez KPL SERVICES : Réservez vos surprises & décorations de fin d'année !",
-        showSnow: true,
-        highlightPacks: true,
-      };
-    }
-  });
-
-  const saveChristmasConfig = (updated: any) => {
-    setChristmasConfig(updated);
-    localStorage.setItem('kpl_christmas_config', JSON.stringify(updated));
-    showToast('Paramètres de Noël enregistrés avec succès !', 'success');
-    try {
-      supabase.from('site_settings').upsert({ key: 'christmas_config', value: updated });
-    } catch {}
-  };
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -271,106 +242,6 @@ export default function Parametres() {
                 Vous avez bloqué les notifications. Pour les réactiver, veuillez modifier les paramètres de votre navigateur (icône cadenas dans la barre d'adresse).
               </p>
             )}
-          </div>
-        </motion.section>
-
-        {/* SECTION NOËL — Ambiance & Campagne de Fêtes */}
-        <motion.section variants={itemVariants} className="bg-white rounded-xl shadow-sm border border-red-100 overflow-hidden">
-          <div className="p-6 border-b border-red-100 flex items-center justify-between bg-gradient-to-r from-red-50 to-amber-50/50">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 text-red-700 rounded-lg">
-                <Gift className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  Thème & Ambiance de Noël
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Activez ou désactivez les décorations de fêtes sur le site public en un clic.
-                </p>
-              </div>
-            </div>
-
-            <a
-              href="/noel"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 bg-white border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors shadow-xs"
-            >
-              <span>Aperçu page /noel</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-
-          <div className="p-6 space-y-6">
-            {/* Switch Principal */}
-            <div className="flex items-center justify-between p-4 rounded-xl border border-stone-200 bg-stone-50">
-              <div>
-                <div className="font-bold text-gray-900 text-sm sm:text-base">
-                  Activer le Mode Noël sur le site public
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Affiche la bannière des fêtes, les accents de Noël, et le lien vers la page spéciale dans le menu.
-                </p>
-              </div>
-
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={christmasConfig.isEnabled}
-                  onChange={(e) => saveChristmasConfig({ ...christmasConfig, isEnabled: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
-              </label>
-            </div>
-
-            {/* Switch Flocons de neige */}
-            <div className="flex items-center justify-between p-4 rounded-xl border border-stone-200 bg-stone-50">
-              <div>
-                <div className="font-bold text-gray-900 text-sm sm:text-base">
-                  Animation de chute de flocons dorés & blancs
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Effet visuel féerique et ultra-léger sur les pages publiques.
-                </p>
-              </div>
-
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={christmasConfig.showSnow}
-                  disabled={!christmasConfig.isEnabled}
-                  onChange={(e) => saveChristmasConfig({ ...christmasConfig, showSnow: e.target.checked })}
-                  className="sr-only peer disabled:opacity-50"
-                />
-                <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-              </label>
-            </div>
-
-            {/* Texte de la bannière */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                Texte du bandeau festif (Haut de page)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={christmasConfig.bannerText}
-                  onChange={(e) => setChristmasConfig({ ...christmasConfig, bannerText: e.target.value })}
-                  placeholder="Ex: Féerie de Noël chez KPL SERVICES : Réservez vos surprises..."
-                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-sm focus:outline-none focus:border-red-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => saveChristmasConfig(christmasConfig)}
-                  className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium text-xs rounded-lg transition-colors shadow-xs"
-                >
-                  Enregistrer
-                </button>
-              </div>
-            </div>
           </div>
         </motion.section>
 

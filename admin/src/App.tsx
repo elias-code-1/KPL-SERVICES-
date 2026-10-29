@@ -6,7 +6,6 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import UpdatePassword from './pages/UpdatePassword';
 import Reservations from './pages/Reservations';
-import ReservationsNoel from './pages/ReservationsNoel';
 import Messages from './pages/Messages';
 import AdminRealisations from './pages/Realisations';
 import AdminGalerie from './pages/Galerie';
@@ -26,7 +25,6 @@ function TitleUpdater() {
       case '/': title = 'Login'; break;
       case '/dashboard': title = 'Dashboard'; break;
       case '/reservations': title = 'Réservations'; break;
-      case '/reservations-noel': title = 'Réservations Noël'; break;
       case '/messages': title = 'Messages'; break;
       case '/realisations': title = 'Réalisations'; break;
       case '/galerie': title = 'Galerie'; break;
@@ -74,7 +72,6 @@ function App() {
           >
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/reservations" element={<Reservations />} />
-            <Route path="/reservations-noel" element={<ReservationsNoel />} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/realisations" element={<AdminRealisations />} />
             <Route path="/galerie" element={<AdminGalerie />} />

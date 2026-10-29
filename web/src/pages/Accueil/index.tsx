@@ -1,14 +1,12 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Palette, Gift, Sparkles, ClipboardList, Armchair, ArrowRight, TreePine } from 'lucide-react';
+import { Palette, Gift, Sparkles, ClipboardList, Armchair, ArrowRight } from 'lucide-react';
 import TestimonialsSection from './TestimonialsSection';
 import { SEO } from '../../components/SEO';
-import { useChristmas } from '../../context/ChristmasContext';
 
 export default function Accueil() {
   const { t } = useTranslation();
-  const { config } = useChristmas();
 
   const services = [
     {

@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Menu, X, Sparkles } from 'lucide-react';
-import { useChristmas } from '../../context/ChristmasContext';
+import { Menu, X } from 'lucide-react';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
   const { t, i18n } = useTranslation();
-  const { config } = useChristmas();
 
   // Fallback to 'fr' if i18n is not fully initialized yet
   const currentLang = i18n.language || 'fr';
@@ -19,7 +17,6 @@ export function Navbar() {
 
   const navLinks = [
     { name: t('nav.home'), path: '/' },
-    ...(config.isEnabled ? [{ name: '🎄 Noël & Fêtes', path: '/noel' }] : []),
     { name: t('nav.about'), path: '/a-propos' },
     { name: t('nav.services'), path: '/services' },
     { name: t('nav.pricing'), path: '/tarifs' },
