@@ -3,28 +3,28 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Calendar, Eye, Trash2, X, 
   ChevronLeft, ChevronRight, Gift, Sparkles, 
-  Phone, MessageSquare, CheckCircle, Clock, AlertCircle, RefreshCw
+  Phone, MessageSquare, CheckCircle, Clock, AlertCircle, RefreshCw, PlusCircle, Database
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 interface Reservation {
   id: string;
   nom: string;
-  prenom?: string;
   email?: string;
   telephone: string;
   type_evenement: string;
   pack_choisi: string;
   date_evenement: string;
   statut: string;
-  prix_estime?: number;
-  notes?: string;
+  prix?: number;
   created_at: string;
 }
 
 export default function ReservationsNoel() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [isInsertingTest, setIsInsertingTest] = useState(false);
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,6 +36,7 @@ export default function ReservationsNoel() {
 
   const fetchChristmasReservations = async () => {
     setIsLoading(true);
+    setDbError(null);
     try {
       const { data, error } = await supabase
         .from('reservations')
@@ -44,78 +45,16 @@ export default function ReservationsNoel() {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.warn('Erreur de requête Supabase:', error);
-        // Données d'exemple festives si la table est vide pour que le client voie immédiatement le rendu
-        const fallbackData: Reservation[] = [
-          {
-            id: 'noel-1',
-            nom: 'Kouassi',
-            prenom: 'Estelle',
-            email: 'estelle.k@gmail.com',
-            telephone: '+225 07 08 09 10 11',
-            type_evenement: 'noel',
-            pack_choisi: 'Noël : Nuit Étoilée (Romantique & Amoureux)',
-            date_evenement: '2026-12-24',
-            statut: 'en_attente',
-            prix_estime: 65000,
-            notes: 'Lieu: Cocody Angré 7e Tranche. Livraison discrète avant 19h.',
-            created_at: new Date().toISOString()
-          },
-          {
-            id: 'noel-2',
-            nom: 'Bamba',
-            prenom: 'Moussa',
-            email: 'm.bamba@ci-telecom.com',
-            telephone: '+225 05 44 33 22 11',
-            type_evenement: 'noel',
-            pack_choisi: 'Noël : Féerie Magique (Famille & Enfants)',
-            date_evenement: '2026-12-25',
-            statut: 'confirmee',
-            prix_estime: 45000,
-            notes: 'Deux enfants (5 et 8 ans). Passage Père Noël souhaité à 11h30.',
-            created_at: new Date(Date.now() - 86400000).toISOString()
-          },
-          {
-            id: 'noel-3',
-            nom: 'Diabaté',
-            prenom: 'Awa',
-            email: 'awa.diabate@holding.ci',
-            telephone: '+225 01 02 03 04 05',
-            type_evenement: 'noel',
-            pack_choisi: 'Noël : Prestige Réveillon (Dîner & Réception)',
-            date_evenement: '2026-12-31',
-            statut: 'en_attente',
-            prix_estime: 180000,
-            notes: 'Réveillon Saint-Sylvestre pour 20 personnes à Marcory Résidentiel.',
-            created_at: new Date(Date.now() - 172800000).toISOString()
-          }
-        ];
-        setReservations(fallbackData);
+        console.error('Erreur Supabase fetch:', error);
+        setDbError(`Erreur Supabase (${error.code || 'inconnue'}) : ${error.message}`);
+        setReservations([]);
       } else {
-        if (data && data.length > 0) {
-          setReservations(data);
-        } else {
-          // Si aucune résa trouvée dans la BDD, afficher les exemples
-          setReservations([
-            {
-              id: 'noel-sample-1',
-              nom: 'Kouassi',
-              prenom: 'Estelle',
-              email: 'estelle.k@gmail.com',
-              telephone: '+225 07 08 09 10 11',
-              type_evenement: 'noel',
-              pack_choisi: 'Noël : Nuit Étoilée (Romantique & Amoureux)',
-              date_evenement: '2026-12-24',
-              statut: 'en_attente',
-              prix_estime: 65000,
-              notes: 'Cocody Angré. Livraison discrète avant 19h.',
-              created_at: new Date().toISOString()
-            }
-          ]);
-        }
+        setReservations(data || []);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setDbError(`Erreur de connexion : ${err.message || 'Impossible de joindre Supabase'}`);
+      setReservations([]);
     } finally {
       setIsLoading(false);
     }
@@ -123,14 +62,28 @@ export default function ReservationsNoel() {
 
   useEffect(() => {
     fetchChristmasReservations();
+
+    // Abonnement en temps réel aux nouvelles réservations
+    const channel = supabase
+      .channel('realtime:reservations_noel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+        fetchChristmasReservations();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('reservations')
         .update({ statut: newStatus })
         .eq('id', id);
+
+      if (error) throw error;
 
       setReservations((prev) =>
         prev.map((r) => (r.id === id ? { ...r, statut: newStatus } : r))
@@ -138,16 +91,60 @@ export default function ReservationsNoel() {
       if (selectedRes && selectedRes.id === id) {
         setSelectedRes({ ...selectedRes, statut: newStatus });
       }
-    } catch {
-      setReservations((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, statut: newStatus } : r))
-      );
+    } catch (err: any) {
+      alert(`Erreur de mise à jour dans Supabase: ${err.message}`);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Voulez-vous vraiment supprimer cette réservation de la base de données Supabase ?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('reservations')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setReservations((prev) => prev.filter((r) => r.id !== id));
+      if (selectedRes?.id === id) setSelectedRes(null);
+    } catch (err: any) {
+      alert(`Erreur de suppression dans Supabase: ${err.message}`);
+    }
+  };
+
+  const handleInsertTest = async () => {
+    setIsInsertingTest(true);
+    try {
+      const { error } = await supabase.from('reservations').insert([
+        {
+          nom: 'Mme Mensah Estelle (Test)',
+          telephone: '+228 91 33 34 68',
+          email: 'estelle.mensah@gmail.com',
+          type_evenement: 'noel',
+          pack_choisi: 'Noël : Nuit Étoilée (Romantique & Amoureux) | Lieu: Lomé Tokoin',
+          date_evenement: '2026-12-24',
+          statut: 'en_attente',
+          prix: 65000
+        }
+      ]);
+
+      if (error) {
+        alert(`Erreur Supabase (${error.code}) : ${error.message}`);
+      } else {
+        await fetchChristmasReservations();
+      }
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    } finally {
+      setIsInsertingTest(false);
     }
   };
 
   const handleWhatsAppCustomer = (res: Reservation) => {
     const text = encodeURIComponent(
-      `Bonjour ${res.prenom || ''} ${res.nom}, nous avons bien reçu votre réservation KPL SERVICES pour votre surprise de Noël (${res.pack_choisi}) prévue le ${res.date_evenement}. Nous vous contactons pour finaliser votre prestation.`
+      `Bonjour ${res.nom}, nous avons bien reçu votre réservation KPL SERVICES pour votre formule de Noël (${res.pack_choisi}) prévue le ${res.date_evenement}. Nous vous contactons pour finaliser votre commande.`
     );
     const cleanPhone = res.telephone.replace(/[^0-9]/g, '');
     window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
@@ -157,7 +154,6 @@ export default function ReservationsNoel() {
   const filtered = reservations.filter((r) => {
     const matchesSearch =
       r.nom.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (r.prenom && r.prenom.toLowerCase().includes(searchTerm.toLowerCase())) ||
       r.telephone.includes(searchTerm) ||
       r.pack_choisi.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -172,10 +168,8 @@ export default function ReservationsNoel() {
     return matchesSearch && matchesStatus && matchesDate;
   });
 
-  // Statistiques rapides
   const count24 = reservations.filter((r) => r.date_evenement.includes('-12-24')).length;
   const count25 = reservations.filter((r) => r.date_evenement.includes('-12-25')).length;
-  const count31 = reservations.filter((r) => r.date_evenement.includes('-12-31')).length;
   const countPending = reservations.filter((r) => r.statut === 'en_attente').length;
 
   return (
@@ -185,32 +179,57 @@ export default function ReservationsNoel() {
         <div>
           <div className="inline-flex items-center space-x-2 bg-amber-400/20 text-amber-300 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider mb-2">
             <Gift className="w-3.5 h-3.5" />
-            <span>Campagne Fêtes 2026</span>
+            <span>Connecté à la table Supabase `reservations`</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2">
             Réservations Spéciales Noël
             <Sparkles className="w-6 h-6 text-amber-300" />
           </h1>
           <p className="text-stone-200 text-sm mt-1">
-            Gérez toutes les demandes de décorations, surprises du Père Noël et réveillon en un seul endroit.
+            Données réelles synchronisées en temps réel avec votre base PostgreSQL Supabase.
           </p>
         </div>
 
-        <button
-          onClick={fetchChristmasReservations}
-          className="inline-flex items-center space-x-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all backdrop-blur-sm self-start sm:self-auto"
-        >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>Actualiser</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={handleInsertTest}
+            disabled={isInsertingTest}
+            className="inline-flex items-center space-x-1.5 bg-amber-400 hover:bg-amber-300 text-neutral-950 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md disabled:opacity-50"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>{isInsertingTest ? 'Insertion...' : 'Tester insert BDD'}</span>
+          </button>
+
+          <button
+            onClick={fetchChristmasReservations}
+            className="inline-flex items-center space-x-2 bg-white/10 hover:bg-white/20 text-white px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all backdrop-blur-sm"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Actualiser</span>
+          </button>
+        </div>
       </div>
+
+      {/* Alerte Erreur BDD */}
+      {dbError && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-800 text-xs sm:text-sm flex items-start gap-3 shadow-xs">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="font-bold">Alerte Base de Données Supabase :</div>
+            <p className="mt-0.5 text-red-700">{dbError}</p>
+            <p className="mt-2 text-red-600 font-medium">
+              💡 Si l'erreur mentionne RLS ou 42501, exécutez le script <code className="bg-red-100 px-1.5 py-0.5 rounded font-mono">supabase_setup_noel.sql</code> dans votre SQL Editor Supabase.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-stone-100 shadow-sm">
-          <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Total Noël</span>
+          <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Total Noël (BDD)</span>
           <div className="text-2xl sm:text-3xl font-extrabold text-stone-900 mt-1">{reservations.length}</div>
-          <span className="text-xs text-amber-600 font-medium">Toutes formules confondues</span>
+          <span className="text-xs text-amber-600 font-medium">Enregistrées dans Supabase</span>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-stone-100 shadow-sm">
@@ -228,7 +247,7 @@ export default function ReservationsNoel() {
         <div className="bg-white p-5 rounded-2xl border border-stone-100 shadow-sm">
           <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider">En Attente</span>
           <div className="text-2xl sm:text-3xl font-extrabold text-amber-500 mt-1">{countPending}</div>
-          <span className="text-xs text-stone-500">À confirmer d'urgence</span>
+          <span className="text-xs text-stone-500">À traiter en priorité</span>
         </div>
       </div>
 
@@ -246,7 +265,6 @@ export default function ReservationsNoel() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Filtre Date */}
           <select
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
@@ -258,7 +276,6 @@ export default function ReservationsNoel() {
             <option value="31">31 Décembre (Saint-Sylvestre)</option>
           </select>
 
-          {/* Filtre Statut */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -278,15 +295,25 @@ export default function ReservationsNoel() {
         {isLoading ? (
           <div className="p-12 text-center text-stone-500">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
-            <span>Chargement des réservations de fêtes...</span>
+            <span>Connexion à Supabase & chargement des réservations...</span>
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">
-            <Gift className="w-12 h-12 text-stone-300 mx-auto mb-3" />
-            <h3 className="text-base font-semibold text-stone-800">Aucune réservation de Noël trouvée</h3>
-            <p className="text-xs text-stone-500 mt-1">
-              Les demandes envoyées depuis la page Noël apparaîtront automatiquement ici.
+            <Database className="w-12 h-12 text-stone-300 mx-auto mb-3" />
+            <h3 className="text-base font-semibold text-stone-800">
+              0 réservation de Noël dans la base Supabase
+            </h3>
+            <p className="text-xs text-stone-500 mt-1 max-w-md mx-auto">
+              La table Supabase est bien connectée. Dès qu'un client réserve sur la page <a href="/noel" target="_blank" className="text-red-600 underline font-semibold">/noel</a>, la ligne apparaîtra ici en direct.
             </p>
+            <button
+              onClick={handleInsertTest}
+              disabled={isInsertingTest}
+              className="mt-4 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5"
+            >
+              <PlusCircle className="w-4 h-4 text-amber-500" />
+              <span>Créer une réservation de test dans Supabase</span>
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -295,7 +322,7 @@ export default function ReservationsNoel() {
                 <tr>
                   <th className="py-3.5 px-4 font-semibold">Client</th>
                   <th className="py-3.5 px-4 font-semibold">Date Prévue</th>
-                  <th className="py-3.5 px-4 font-semibold">Formule de Noël</th>
+                  <th className="py-3.5 px-4 font-semibold">Formule / Détails</th>
                   <th className="py-3.5 px-4 font-semibold">Statut</th>
                   <th className="py-3.5 px-4 font-semibold text-right">Actions</th>
                 </tr>
@@ -304,13 +331,14 @@ export default function ReservationsNoel() {
                 {filtered.map((r) => (
                   <tr key={r.id} className="hover:bg-rose-50/30 transition-colors">
                     <td className="py-4 px-4">
-                      <div className="font-bold text-stone-900">
-                        {r.prenom ? `${r.prenom} ` : ''}{r.nom}
-                      </div>
+                      <div className="font-bold text-stone-900">{r.nom}</div>
                       <div className="text-xs text-stone-500 flex items-center gap-1 mt-0.5">
                         <Phone className="w-3 h-3 text-stone-400" />
                         <span>{r.telephone}</span>
                       </div>
+                      {r.email && (
+                        <div className="text-[11px] text-stone-400">{r.email}</div>
+                      )}
                     </td>
 
                     <td className="py-4 px-4 whitespace-nowrap">
@@ -328,11 +356,11 @@ export default function ReservationsNoel() {
 
                     <td className="py-4 px-4">
                       <div className="text-xs sm:text-sm font-medium text-stone-800">{r.pack_choisi}</div>
-                      {r.prix_estime && (
+                      {r.prix ? (
                         <div className="text-xs text-amber-600 font-bold mt-0.5">
-                          {r.prix_estime.toLocaleString()} FCFA
+                          {r.prix.toLocaleString()} FCFA
                         </div>
-                      )}
+                      ) : null}
                     </td>
 
                     <td className="py-4 px-4 whitespace-nowrap">
@@ -372,6 +400,13 @@ export default function ReservationsNoel() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        <button
+                          onClick={() => handleDelete(r.id)}
+                          title="Supprimer de la BDD"
+                          className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -395,22 +430,20 @@ export default function ReservationsNoel() {
 
             <div className="flex items-center space-x-2 text-red-600 mb-3">
               <Gift className="w-5 h-5" />
-              <span className="text-xs font-bold uppercase tracking-wider">Détails Réservation Noël</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Fiche Réservation Supabase</span>
             </div>
 
-            <h3 className="text-xl font-bold text-stone-900">
-              {selectedRes.prenom ? `${selectedRes.prenom} ` : ''}{selectedRes.nom}
-            </h3>
+            <h3 className="text-xl font-bold text-stone-900">{selectedRes.nom}</h3>
 
             <div className="mt-4 space-y-3 text-sm">
               <div className="p-3 bg-stone-50 rounded-xl">
-                <span className="text-xs text-stone-500 font-semibold uppercase block">Formule</span>
+                <span className="text-xs text-stone-500 font-semibold uppercase block">Formule & Détails</span>
                 <span className="font-bold text-stone-900">{selectedRes.pack_choisi}</span>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-stone-50 rounded-xl">
-                  <span className="text-xs text-stone-500 font-semibold uppercase block">Date d'événement</span>
+                  <span className="text-xs text-stone-500 font-semibold uppercase block">Date prévue</span>
                   <span className="font-bold text-stone-900">{selectedRes.date_evenement}</span>
                 </div>
                 <div className="p-3 bg-stone-50 rounded-xl">
@@ -419,18 +452,22 @@ export default function ReservationsNoel() {
                 </div>
               </div>
 
-              {selectedRes.notes && (
-                <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl">
-                  <span className="text-xs text-amber-800 font-semibold uppercase block">Notes & Lieu</span>
-                  <p className="text-stone-800 mt-0.5 text-xs sm:text-sm">{selectedRes.notes}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-stone-50 rounded-xl">
+                  <span className="text-xs text-stone-500 font-semibold uppercase block">Statut Supabase</span>
+                  <span className="font-bold text-stone-900 capitalize">{selectedRes.statut}</span>
                 </div>
-              )}
+                <div className="p-3 bg-stone-50 rounded-xl">
+                  <span className="text-xs text-stone-500 font-semibold uppercase block">ID BDD</span>
+                  <span className="font-mono text-xs text-stone-600 truncate block">{selectedRes.id}</span>
+                </div>
+              </div>
             </div>
 
             <div className="mt-6 pt-4 border-t border-stone-200 flex gap-3">
               <button
                 onClick={() => handleWhatsAppCustomer(selectedRes)}
-                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs sm:text-sm transition-all flex items-center justify-center space-x-2"
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs sm:text-sm transition-all flex items-center justify-center space-x-2 shadow-sm"
               >
                 <MessageSquare className="w-4 h-4" />
                 <span>Ouvrir WhatsApp</span>

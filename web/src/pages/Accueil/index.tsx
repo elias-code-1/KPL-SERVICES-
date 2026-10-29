@@ -128,14 +128,6 @@ export default function Accueil() {
             >
               {t('hero.cta_book')}
             </Link>
-            {config.isEnabled && (
-              <Link
-                to="/noel"
-                className="px-8 py-4 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-neutral-950 font-bold rounded-md text-lg transition-all shadow-lg flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
-              >
-                <span>🎄 Spécial Noël</span>
-              </Link>
-            )}
             <Link
               to="/realisations"
               className="px-8 py-4 bg-transparent border-2 border-white hover:bg-white/10 text-white rounded-md text-lg font-medium transition-colors"
@@ -146,39 +138,6 @@ export default function Accueil() {
 
         </div>
       </section>
-
-      {/* Christmas Special Callout */}
-      {config.isEnabled && (
-        <section className="bg-gradient-to-r from-red-900 via-rose-900 to-amber-900 text-white py-12 px-4 shadow-inner relative overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,_var(--tw-gradient-stops))] from-amber-400/10 via-transparent to-transparent pointer-events-none" />
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
-            <div className="flex items-center gap-4 text-center md:text-left">
-              <div className="w-14 h-14 rounded-2xl bg-amber-400/20 border border-amber-300/30 flex items-center justify-center flex-shrink-0 text-amber-300 shadow-md">
-                <Gift className="w-7 h-7 animate-bounce" />
-              </div>
-              <div>
-                <span className="inline-block text-amber-300 text-xs font-bold uppercase tracking-wider mb-1">
-                  Édition Fêtes & Réveillon 2026
-                </span>
-                <h3 className="text-xl sm:text-2xl font-extrabold text-white">
-                  Préparez votre Surprise & Décoration de Noël
-                </h3>
-                <p className="text-stone-300 text-xs sm:text-sm mt-0.5 max-w-xl">
-                  Visite surprise du Père Noël avec fanfare, décorations de table féeriques et packs cadeaux sur-mesure.
-                </p>
-              </div>
-            </div>
-
-            <Link
-              to="/noel"
-              className="px-6 py-3.5 bg-amber-400 hover:bg-amber-300 text-neutral-950 font-bold rounded-xl text-sm transition-all shadow-xl flex items-center gap-2 flex-shrink-0 transform hover:-translate-y-0.5"
-            >
-              <span>Découvrir nos offres de Noël</span>
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-        </section>
-      )}
 
       {/* Services Preview Section */}
       <section className="py-24 bg-white">
