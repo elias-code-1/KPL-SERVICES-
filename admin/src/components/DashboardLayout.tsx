@@ -3,13 +3,14 @@ import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, Calendar, MessageSquare, Images, 
-  Camera, Star, Settings, LogOut, Menu, Bell, Download 
+  Camera, Star, Settings, LogOut, Menu, Bell, Download, Gift 
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 const navItems = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
   { path: '/reservations', icon: Calendar, label: 'Réservations' },
+  { path: '/reservations-noel', icon: Gift, label: '🎄 Résa Noël' },
   { path: '/messages', icon: MessageSquare, label: 'Messages' },
   { path: '/realisations', icon: Images, label: 'Réalisations' },
   { path: '/galerie', icon: Camera, label: 'Galerie' },

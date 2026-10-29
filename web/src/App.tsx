@@ -2,6 +2,9 @@ import { BrowserRouter as Router, Routes, Route, Outlet, useLocation, Link } fro
 import { useEffect } from 'react';
 import { Navbar, Footer } from './components/layout';
 import { WhatsAppButton } from './components/ui';
+import { ChristmasProvider, useChristmas } from './context/ChristmasContext';
+import { ChristmasBanner } from './components/christmas/ChristmasBanner';
+import { SnowEffect } from './components/christmas/SnowEffect';
 
 import Accueil from './pages/Accueil';
 import APropos from './pages/APropos';
@@ -13,6 +16,7 @@ import Equipe from './pages/Equipe';
 import Contact from './pages/Contact';
 import Reservation from './pages/Reservation';
 import AvisClient from './pages/AvisClient';
+import Noel from './pages/Noel';
 
 function Simple404() {
   useEffect(() => {
@@ -49,6 +53,7 @@ function TitleUpdater() {
       case '/equipe': title = 'Équipe'; break;
       case '/contact': title = 'Contact'; break;
       case '/reservation': title = 'Réservation'; break;
+      case '/noel': title = 'Féerie de Noël & Réveillon'; break;
       case '/avis': title = 'Laissez votre avis'; break;
       case '/404': title = 'Page introuvable'; break;
       default: title = 'Accueil';
@@ -61,8 +66,12 @@ function TitleUpdater() {
 }
 
 function PublicLayout() {
+  const { config } = useChristmas();
+
   return (
     <div className="min-h-screen flex flex-col relative">
+      {config.isEnabled && <ChristmasBanner />}
+      {config.isEnabled && config.showSnow && <SnowEffect />}
       <Navbar />
       <main className="flex-grow">
         <Outlet />
@@ -75,24 +84,27 @@ function PublicLayout() {
 
 function App() {
   return (
-    <Router>
-      <TitleUpdater />
-      <Routes>
-        <Route path="/avis" element={<AvisClient />} />
-        <Route element={<PublicLayout />}>
-          <Route path="/" element={<Accueil />} />
-          <Route path="/a-propos" element={<APropos />} />
-          <Route path="/services" element={<Services />} />
-          <Route path="/tarifs" element={<Tarifs />} />
-          <Route path="/realisations" element={<Realisations />} />
-          <Route path="/galerie" element={<Galerie />} />
-          <Route path="/equipe" element={<Equipe />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/reservation" element={<Reservation />} />
-        </Route>
-        <Route path="*" element={<Simple404 />} />
-      </Routes>
-    </Router>
+    <ChristmasProvider>
+      <Router>
+        <TitleUpdater />
+        <Routes>
+          <Route path="/avis" element={<AvisClient />} />
+          <Route element={<PublicLayout />}>
+            <Route path="/" element={<Accueil />} />
+            <Route path="/noel" element={<Noel />} />
+            <Route path="/a-propos" element={<APropos />} />
+            <Route path="/services" element={<Services />} />
+            <Route path="/tarifs" element={<Tarifs />} />
+            <Route path="/realisations" element={<Realisations />} />
+            <Route path="/galerie" element={<Galerie />} />
+            <Route path="/equipe" element={<Equipe />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/reservation" element={<Reservation />} />
+          </Route>
+          <Route path="*" element={<Simple404 />} />
+        </Routes>
+      </Router>
+    </ChristmasProvider>
   );
 }
 

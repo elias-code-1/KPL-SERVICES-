@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Cake, Crown, Heart, CheckCircle, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Check, Cake, Crown, Heart, CheckCircle, Loader2, ChevronLeft, ChevronRight, Gift } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useNotifications } from '../../hooks/useNotifications';
 import { SEO } from '../../components/SEO';
+import { useChristmas } from '../../context/ChristmasContext';
 
 interface FormData {
   nom: string;
@@ -36,12 +37,19 @@ const PACKAGES = {
     { id: 'w3', name: 'Luxury - 100 invités', price: 2050000 },
     { id: 'w4', name: 'Extra - 150 invités', price: 3050000 },
     { id: 'w5', name: 'Royal - 200 invités', price: 4050000 }
+  ],
+  noel: [
+    { id: 'n1', name: 'Féerie Magique (Famille & Enfants)', price: 35000 },
+    { id: 'n2', name: 'Nuit Étoilée (Romantique & Amoureux)', price: 65000 },
+    { id: 'n3', name: 'Prestige Réveillon (Dîner & Réception)', price: 180000 },
+    { id: 'n4', name: 'Arbre de Noël & Entreprise (Sur-mesure)', price: 250000 }
   ]
 };
 
 export default function Reservation() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { config } = useChristmas();
   
   const [step, setStep] = useState(1);
   const [direction, setDirection] = useState(1);
@@ -356,6 +364,28 @@ export default function Reservation() {
                       <p className="text-stone-600 mt-1">{t('reservation.step2.events.wedding.desc')}</p>
                     </div>
                   </button>
+
+                  {config.isEnabled && (
+                    <button
+                      onClick={() => handleEventSelect('noel')}
+                      className={`w-full text-left p-6 rounded-xl border-2 transition-all flex items-start ${
+                        formData.type_evenement === 'noel' 
+                          ? 'border-red-500 bg-red-50/70' 
+                          : 'border-stone-200 hover:border-red-400/60'
+                      }`}
+                    >
+                      <div className={`p-3 rounded-full mr-4 ${formData.type_evenement === 'noel' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-600'}`}>
+                        <Gift className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-bold text-stone-900">Spécial Noël & Réveillon</h3>
+                          <span className="text-[10px] uppercase font-bold bg-amber-400 text-stone-950 px-2 py-0.5 rounded-full">Fêtes</span>
+                        </div>
+                        <p className="text-stone-600 mt-1">Surprises avec Père Noël & fanfare, décoration festive, réveillon</p>
+                      </div>
+                    </button>
+                  )}
 
                 </div>
                 <div className="pt-8 flex justify-between">
