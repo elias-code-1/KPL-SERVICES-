@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
@@ -14,20 +14,15 @@ import {
   X, 
   ChevronLeft, 
   ChevronRight, 
-  Download, 
-  Copy, 
-  Check, 
   AlertTriangle, 
   Loader2, 
   DollarSign, 
-  MessageCircle, 
   CheckCircle2, 
-  CalendarDays,
   Sparkles,
-  TreePine,
-  Layers
+  Package
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatPrice } from '../pages/Noel';
 
 export interface ReservationNoel {
   id: string;
@@ -53,24 +48,40 @@ interface NoelReservationsProps {
   showToast: (message: string, type: 'success' | 'error') => void;
 }
 
-function getLocalDateString(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+function getLocalDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-export function formatPriceFCFA(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(Number(amount))) {
-    return '0 FCFA';
+function formatDateLivraison(dateStr: string | null): string {
+  if (!dateStr) return '-';
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  } catch {
+    return dateStr;
   }
-  return `${new Intl.NumberFormat('fr-FR').format(amount).replace(/\u202f/g, ' ')} FCFA`;
 }
 
 export function NoelReservations({ onCountsUpdated, showToast }: NoelReservationsProps) {
   const [reservations, setReservations] = useState<ReservationNoel[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [tableError, setTableError] = useState<string | null>(null);
+
+  // Compteurs globaux
+  const [counts, setCounts] = useState({
+    recu: 0,
+    acompteVerse: 0,
+    enPreparation: 0,
+    livre: 0,
+    totalAcomptes: 0,
+  });
 
   // Filtres
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,168 +97,166 @@ export function NoelReservations({ onCountsUpdated, showToast }: NoelReservation
   const [modalStatut, setModalStatut] = useState<ReservationNoel['statut']>('recu');
   const [modalAcompte, setModalAcompte] = useState<string>('0');
   const [isSavingModal, setIsSavingModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // État de copie du planning
-  const [isCopied, setIsCopied] = useState(false);
-
-  // Dates clés d'aujourd'hui et de demain
-  const todayStr = useMemo(() => getLocalDateString(), []);
-  const tomorrowStr = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return getLocalDateString(d);
-  }, []);
-
-  // Chargement des données
-  const fetchReservations = useCallback(async () => {
-    setTableError(null);
+  // 1. Requête légère pour les compteurs (calculés sur l'ensemble de la table)
+  const fetchCounters = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('reservations_noel')
-        .select('*')
-        .order('date_livraison', { ascending: true, nullsFirst: false })
-        .order('created_at', { ascending: false });
+        .select('statut, acompte');
 
-      if (error) {
-        throw error;
+      if (error) throw error;
+
+      let recu = 0;
+      let acompteVerse = 0;
+      let enPreparation = 0;
+      let livre = 0;
+      let totalAcomptes = 0;
+
+      if (data) {
+        for (const r of data) {
+          if (r.statut === 'recu') recu++;
+          else if (r.statut === 'acompte_verse') acompteVerse++;
+          else if (r.statut === 'en_preparation') enPreparation++;
+          else if (r.statut === 'livre') livre++;
+
+          if (r.statut !== 'annule') {
+            totalAcomptes += Number(r.acompte || 0);
+          }
+        }
       }
 
-      const list: ReservationNoel[] = data || [];
-      setReservations(list);
-
-      const recuCount = list.filter((r) => r.statut === 'recu').length;
+      setCounts({ recu, acompteVerse, enPreparation, livre, totalAcomptes });
       if (onCountsUpdated) {
-        onCountsUpdated({ recuCount, totalCount: list.length });
+        onCountsUpdated({ recuCount: recu, totalCount: data?.length || 0 });
       }
     } catch (err: any) {
-      console.error('[NoelReservations] Erreur chargement:', err);
-      setTableError(
-        err.message ||
-        "Impossible de lire la table 'reservations_noel'. Veuillez exécuter le script supabase_noel_phase4.sql dans le SQL Editor de Supabase."
-      );
-    } finally {
-      setIsLoading(false);
+      console.error('[NoelReservations] Erreur chargement compteurs:', err);
     }
   }, [onCountsUpdated]);
 
+  // 2. Requête unique pour la liste paginée avec le compte exact
+  const fetchReservations = useCallback(async () => {
+    setIsLoading(true);
+    setTableError(null);
+
+    try {
+      let query = supabase
+        .from('reservations_noel')
+        .select('*', { count: 'exact' });
+
+      // Filtre de recherche par nom ou téléphone
+      if (searchTerm.trim()) {
+        const term = searchTerm.trim();
+        query = query.or(`nom.ilike.%${term}%,telephone.ilike.%${term}%`);
+      }
+
+      // Filtre par statut
+      if (statusFilter !== 'all') {
+        query = query.eq('statut', statusFilter);
+      }
+
+      // Puces de date de livraison (24, 25, 31 décembre sur toute année, ou autres dates)
+      const years = [2024, 2025, 2026, 2027, 2028, 2029, 2030];
+      if (dateFilter === '24') {
+        const dates = years.map((y) => `${y}-12-24`);
+        query = query.in('date_livraison', dates);
+      } else if (dateFilter === '25') {
+        const dates = years.map((y) => `${y}-12-25`);
+        query = query.in('date_livraison', dates);
+      } else if (dateFilter === '31') {
+        const dates = years.map((y) => `${y}-12-31`);
+        query = query.in('date_livraison', dates);
+      } else if (dateFilter === 'autres') {
+        const specialDates = years.flatMap((y) => [
+          `${y}-12-24`,
+          `${y}-12-25`,
+          `${y}-12-31`,
+        ]);
+        query = query.not('date_livraison', 'in', `(${specialDates.join(',')})`);
+      }
+
+      // Tri : date de livraison croissante (nulls à la fin), puis date de création décroissante
+      query = query
+        .order('date_livraison', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: false });
+
+      // Pagination de 10
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+      query = query.range(from, to);
+
+      const { data, count, error } = await query;
+
+      if (error) throw error;
+
+      setReservations(data || []);
+      setTotalCount(count || 0);
+    } catch (err: any) {
+      console.error('[NoelReservations] Erreur chargement liste:', err);
+      const isMissingTable =
+        err?.code === '42P01' ||
+        (typeof err?.message === 'string' && err.message.includes('reservations_noel'));
+
+      const msg = isMissingTable
+        ? "La table 'reservations_noel' est introuvable. Veuillez exécuter le script SQL de la Phase 4 (supabase_noel_phase4.sql) dans l'éditeur SQL de Supabase."
+        : err?.message || 'Erreur lors du chargement des réservations de Noël.';
+
+      setTableError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, searchTerm, statusFilter, dateFilter, showToast]);
+
+  // Initialisation et rechargement lors des changements de filtres ou de page
   useEffect(() => {
     fetchReservations();
-
-    // Écoute Realtime sur reservations_noel pour rafraîchir la liste sans reset
-    const channel = supabase
-      .channel('admin_noel_reservations_realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'reservations_noel' },
-        () => {
-          fetchReservations();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [fetchReservations]);
+
+  useEffect(() => {
+    fetchCounters();
+  }, [fetchCounters]);
+
+  // Réinitialiser la page à 1 lors de la modification des filtres
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, dateFilter]);
 
   // Synchronisation des états de la modale lors de la sélection
   useEffect(() => {
     if (selectedRes) {
       setModalStatut(selectedRes.statut);
-      setModalAcompte(String(selectedRes.acompte || 0));
+      setModalAcompte(String(selectedRes.acompte ?? 0));
     }
   }, [selectedRes]);
 
-  // Calcul des compteurs
-  const counts = useMemo(() => {
-    let recu = 0;
-    let acompteVerse = 0;
-    let enPreparation = 0;
-    let livre = 0;
-    let totalAcomptes = 0;
-
-    for (const r of reservations) {
-      if (r.statut === 'recu') recu++;
-      else if (r.statut === 'acompte_verse') acompteVerse++;
-      else if (r.statut === 'en_preparation') enPreparation++;
-      else if (r.statut === 'livre') livre++;
-
-      if (r.statut !== 'annule') {
-        totalAcomptes += Number(r.acompte || 0);
-      }
-    }
-
-    return { recu, acompteVerse, enPreparation, livre, totalAcomptes };
-  }, [reservations]);
-
-  // Filtrage côté client pour réactivité instantanée
-  const filteredReservations = useMemo(() => {
-    return reservations.filter((r) => {
-      // Recherche nom ou téléphone
-      if (searchTerm.trim()) {
-        const term = searchTerm.toLowerCase().trim();
-        const matchesNom = r.nom?.toLowerCase().includes(term);
-        const matchesTel = r.telephone?.replace(/[^0-9]/g, '').includes(term.replace(/[^0-9]/g, ''));
-        const matchesLieu = r.ville_lieu?.toLowerCase().includes(term);
-        const matchesPack = r.pack_nom?.toLowerCase().includes(term);
-        if (!matchesNom && !matchesTel && !matchesLieu && !matchesPack) {
-          return false;
-        }
-      }
-
-      // Filtre statut
-      if (statusFilter !== 'all' && r.statut !== statusFilter) {
-        return false;
-      }
-
-      // Filtre date de livraison
-      if (dateFilter !== 'all') {
-        const dateStr = r.date_livraison || '';
-        if (dateFilter === '24' && !dateStr.endsWith('-12-24')) return false;
-        if (dateFilter === '25' && !dateStr.endsWith('-12-25')) return false;
-        if (dateFilter === '31' && !dateStr.endsWith('-12-31')) return false;
-        if (dateFilter === 'autres') {
-          if (
-            dateStr.endsWith('-12-24') ||
-            dateStr.endsWith('-12-25') ||
-            dateStr.endsWith('-12-31')
-          ) {
-            return false;
-          }
-        }
-      }
-
-      return true;
-    });
-  }, [reservations, searchTerm, statusFilter, dateFilter]);
-
-  // Reset page à 1 quand les filtres changent
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, dateFilter]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredReservations.length / itemsPerPage) || 1;
-  const paginatedReservations = useMemo(() => {
-    const from = (currentPage - 1) * itemsPerPage;
-    return filteredReservations.slice(from, from + itemsPerPage);
-  }, [filteredReservations, currentPage]);
-
-  // Badges d'urgence (24 DÉC, 25 DÉC, 31 DÉC, AUJOURD'HUI, DEMAIN)
+  // Badges d'urgence : 24 DÉC, 25 DÉC, 31 DÉC (en comparant mois et jour), AUJOURD'HUI, DEMAIN (en heure locale)
   const getUrgencyBadges = (dateStr: string | null) => {
     if (!dateStr) return null;
     const badges: { text: string; bg: string }[] = [];
 
-    if (dateStr.endsWith('-12-24')) {
-      badges.push({ text: '24 DÉC', bg: 'bg-red-600 text-white' });
-    } else if (dateStr.endsWith('-12-25')) {
-      badges.push({ text: '25 DÉC', bg: 'bg-emerald-600 text-white' });
-    } else if (dateStr.endsWith('-12-31')) {
-      badges.push({ text: '31 DÉC', bg: 'bg-purple-600 text-white' });
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const month = parts[1];
+      const day = parts[2];
+      if (month === '12' && day === '24') {
+        badges.push({ text: '24 DÉC', bg: 'bg-red-600 text-white' });
+      } else if (month === '12' && day === '25') {
+        badges.push({ text: '25 DÉC', bg: 'bg-red-600 text-white' });
+      } else if (month === '12' && day === '31') {
+        badges.push({ text: '31 DÉC', bg: 'bg-red-600 text-white' });
+      }
     }
 
+    const todayStr = getLocalDateString(new Date());
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = getLocalDateString(tomorrow);
+
     if (dateStr === todayStr) {
-      badges.push({ text: 'AUJOURD\'HUI', bg: 'bg-[#E91E8C] text-white animate-pulse' });
+      badges.push({ text: "AUJOURD'HUI", bg: 'bg-red-600 text-white animate-pulse' });
     } else if (dateStr === tomorrowStr) {
       badges.push({ text: 'DEMAIN', bg: 'bg-amber-600 text-white' });
     }
@@ -259,7 +268,7 @@ export function NoelReservations({ onCountsUpdated, showToast }: NoelReservation
         {badges.map((b, i) => (
           <span
             key={i}
-            className={`text-[10px] font-black px-1.5 py-0.5 rounded shadow-sm ${b.bg}`}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${b.bg}`}
           >
             {b.text}
           </span>
@@ -268,99 +277,89 @@ export function NoelReservations({ onCountsUpdated, showToast }: NoelReservation
     );
   };
 
-  // Badge statut
+  // Badge de statut stylisé selon Reservations.tsx
   const getStatusBadge = (statut: ReservationNoel['statut']) => {
     switch (statut) {
       case 'recu':
         return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
             Reçu
           </span>
         );
       case 'acompte_verse':
         return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
             Acompte versé
           </span>
         );
       case 'en_preparation':
         return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
             En préparation
           </span>
         );
       case 'livre':
         return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
             Livré
           </span>
         );
       case 'annule':
         return (
-          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200 inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600">
             Annulé
+          </span>
+        );
+      default:
+        return (
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+            {statut}
           </span>
         );
     }
   };
 
-  // Formatage de date lisible
-  const formatDateDisplay = (dateString: string | null) => {
-    if (!dateString) return 'Non précisée';
-    try {
-      const parts = dateString.split('-');
-      if (parts.length === 3) {
-        return `${parts[2]}/${parts[1]}/${parts[0]}`;
-      }
-      return dateString;
-    } catch {
-      return dateString;
-    }
-  };
-
-  // Enregistrement des modifications de la modale
+  // Enregistrement de la fiche détail (mise à jour statut + acompte uniquement)
   const handleSaveModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRes) return;
 
+    const numAcompte = parseFloat(modalAcompte);
+    if (isNaN(numAcompte) || numAcompte < 0) {
+      showToast("L'acompte doit être un montant valide supérieur ou égal à 0.", 'error');
+      return;
+    }
+
     setIsSavingModal(true);
     try {
-      const parsedAcompte = parseFloat(modalAcompte);
-      const cleanAcompte = isNaN(parsedAcompte) || parsedAcompte < 0 ? 0 : parsedAcompte;
-
       const { error } = await supabase
         .from('reservations_noel')
         .update({
           statut: modalStatut,
-          acompte: cleanAcompte,
+          acompte: numAcompte,
         })
         .eq('id', selectedRes.id);
 
       if (error) throw error;
 
-      showToast('Réservation mise à jour avec succès.', 'success');
-      setSelectedRes((prev) => (prev ? { ...prev, statut: modalStatut, acompte: cleanAcompte } : null));
-      fetchReservations();
+      showToast('Réservation mise à jour avec succès', 'success');
+      setSelectedRes(null);
+      await Promise.all([fetchReservations(), fetchCounters()]);
     } catch (err: any) {
-      console.error('[NoelReservations] Erreur update:', err);
-      showToast(err.message || 'Erreur lors de la mise à jour.', 'error');
+      console.error('Erreur mise à jour réservation Noël:', err);
+      showToast(err.message || 'Erreur lors de la mise à jour', 'error');
     } finally {
       setIsSavingModal(false);
     }
   };
 
-  // Suppression d'une réservation
-  const handleDeleteReservation = async (id: string, clientNom: string) => {
-    const confirmDelete = window.confirm(
-      `Êtes-vous sûr de vouloir supprimer définitivement la réservation de "${clientNom}" ?`
-    );
-    if (!confirmDelete) return;
+  // Suppression d'une réservation avec confirmation
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer définitivement cette réservation de Noël ?')) {
+      return;
+    }
 
+    setIsDeleting(true);
     try {
       const { error } = await supabase
         .from('reservations_noel')
@@ -369,719 +368,506 @@ export function NoelReservations({ onCountsUpdated, showToast }: NoelReservation
 
       if (error) throw error;
 
-      showToast('Réservation supprimée.', 'success');
-      if (selectedRes?.id === id) {
-        setSelectedRes(null);
-      }
-      fetchReservations();
+      showToast('Réservation supprimée avec succès', 'success');
+      setSelectedRes(null);
+      await Promise.all([fetchReservations(), fetchCounters()]);
     } catch (err: any) {
-      console.error('[NoelReservations] Erreur suppression:', err);
-      showToast(err.message || 'Erreur lors de la suppression.', 'error');
+      console.error('Erreur suppression réservation Noël:', err);
+      showToast(err.message || 'Erreur lors de la suppression', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  // Ouverture WhatsApp client avec message pré-rempli
-  const handleWhatsAppCustomer = (res: ReservationNoel) => {
-    const cleanPhone = res.telephone.replace(/[^0-9]/g, '');
-    const text = encodeURIComponent(
-      `Bonjour ${res.nom}, c'est l'équipe KPL SERVICES concernant votre réservation de Noël pour la formule "${res.pack_nom || 'Sur mesure'}" prévue le ${formatDateDisplay(res.date_livraison)} (${res.heure_livraison || 'créneau à convenir'}) à ${res.ville_lieu || 'Lomé'}. Nous vous contactons pour finaliser les détails !`
-    );
-    window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
-  };
-
-  // Export CSV avec BOM UTF-8 pour Excel
-  const handleExportCSV = () => {
-    if (filteredReservations.length === 0) {
-      showToast('Aucune réservation à exporter.', 'error');
-      return;
-    }
-
-    const headers = [
-      'Nom',
-      'Téléphone',
-      'Email',
-      'Type de prestation',
-      'Formule',
-      'Prix pack (FCFA)',
-      'Date livraison',
-      'Heure livraison',
-      'Lieu / Ville',
-      'Budget estimé',
-      'Notes',
-      'Statut',
-      'Acompte versé (FCFA)',
-      'Date de demande',
-    ];
-
-    const escapeCSV = (value: any) => {
-      if (value === null || value === undefined) return '""';
-      const str = String(value).replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
-    const rows = filteredReservations.map((r) => [
-      escapeCSV(r.nom),
-      escapeCSV(r.telephone),
-      escapeCSV(r.email || ''),
-      escapeCSV(r.type_prestation || ''),
-      escapeCSV(r.pack_nom || 'Sur mesure'),
-      escapeCSV(r.prix_pack !== null && r.prix_pack !== undefined ? r.prix_pack : 'Sur devis'),
-      escapeCSV(r.date_livraison || ''),
-      escapeCSV(r.heure_livraison || ''),
-      escapeCSV(r.ville_lieu || ''),
-      escapeCSV(r.budget || ''),
-      escapeCSV(r.notes || ''),
-      escapeCSV(r.statut),
-      escapeCSV(r.acompte || 0),
-      escapeCSV(new Date(r.created_at).toLocaleString('fr-FR')),
-    ]);
-
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((row) => row.join(','))].join('\r\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `reservations_noel_kpl_${getLocalDateString()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    showToast('Export CSV téléchargé avec succès !', 'success');
-  };
-
-  // Copier le planning pour WhatsApp
-  const handleCopyPlanning = async () => {
-    if (filteredReservations.length === 0) {
-      showToast('Aucune réservation dans la sélection.', 'error');
-      return;
-    }
-
-    // Grouper par date de livraison
-    const grouped: Record<string, ReservationNoel[]> = {};
-    for (const res of filteredReservations) {
-      const dKey = res.date_livraison || 'Date non précisée';
-      if (!grouped[dKey]) grouped[dKey] = [];
-      grouped[dKey].push(res);
-    }
-
-    const lines: string[] = ['🎄 *PLANNING LIVRAISONS NOËL — KPL SERVICES* 🎄\n'];
-
-    const sortedDates = Object.keys(grouped).sort();
-    for (const dKey of sortedDates) {
-      const formattedDate =
-        dKey === 'Date non précisée' ? '📅 Date à définir' : `📅 Date : ${formatDateDisplay(dKey)}`;
-      lines.push(`\n${formattedDate} (${grouped[dKey].length} commande${grouped[dKey].length > 1 ? 's' : ''}) :`);
-
-      for (const item of grouped[dKey]) {
-        const heure = item.heure_livraison || 'Horaire non précisé';
-        const formule = item.pack_nom || 'Sur mesure';
-        const lieu = item.ville_lieu || 'Lieu à préciser';
-        const acompteText = item.acompte > 0 ? ` [Acompte: ${formatPriceFCFA(item.acompte)}]` : '';
-        lines.push(`• ${heure} : *${item.nom}* (${item.telephone}) — ${formule} — 📍 ${lieu}${acompteText}`);
-      }
-    }
-
-    const fullText = lines.join('\n');
-
-    try {
-      await navigator.clipboard.writeText(fullText);
-      setIsCopied(true);
-      showToast('Planning copié dans le presse-papiers !', 'success');
-      setTimeout(() => setIsCopied(false), 2500);
-    } catch (err) {
-      console.error('Erreur clipboard:', err);
-      showToast('Impossible de copier automatiquement.', 'error');
-    }
-  };
+  const totalPages = Math.ceil(totalCount / itemsPerPage) || 1;
 
   return (
     <div className="space-y-6">
-      {/* Alerte si table absente */}
+      {/* Bannière d'erreur en cas de table absente ou défaillance Supabase */}
       {tableError && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 text-red-800">
           <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-sm">Table reservations_noel introuvable ou droits manquants</p>
+            <p className="font-semibold text-sm">Erreur de lecture de la table 'reservations_noel'</p>
             <p className="text-xs text-red-700 mt-1">{tableError}</p>
-            <p className="text-xs text-red-600 mt-2 font-medium">
-              Veuillez exécuter le script <code className="bg-red-100 px-1 py-0.5 rounded font-mono">supabase_noel_phase4.sql</code> dans le SQL Editor de Supabase pour créer la table et activer Realtime.
-            </p>
           </div>
         </div>
       )}
 
-      {/* RANGÉE DE COMPTEURS */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+      {/* SECTION 1 : 5 Compteurs en haut (calculés sur l'ensemble des réservations non annulées) */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Reçues */}
-        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between text-amber-600 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Reçues</span>
-            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase text-gray-500">Reçues</span>
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Clock className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-black text-gray-900">{counts.recu}</div>
-          <p className="text-[11px] text-gray-400 mt-1">À traiter / valider</p>
+          <div className="text-2xl font-bold text-gray-900">{counts.recu}</div>
+          <div className="text-xs text-gray-400 mt-1">À traiter</div>
         </div>
 
         {/* Acomptes versés */}
-        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between text-blue-600 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Acomptes versés</span>
-            <CheckCircle2 className="w-4 h-4" />
+        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase text-gray-500">Acomptes versés</span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <DollarSign className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-black text-gray-900">{counts.acompteVerse}</div>
-          <p className="text-[11px] text-gray-400 mt-1">Confirmées</p>
+          <div className="text-2xl font-bold text-emerald-700">{counts.acompteVerse}</div>
+          <div className="text-xs text-gray-400 mt-1">Confirmées</div>
         </div>
 
         {/* En préparation */}
-        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between text-purple-600 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">En préparation</span>
-            <Sparkles className="w-4 h-4" />
+        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase text-gray-500">En préparation</span>
+            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+              <Package className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-black text-gray-900">{counts.enPreparation}</div>
-          <p className="text-[11px] text-gray-400 mt-1">En cours d'atelier</p>
+          <div className="text-2xl font-bold text-purple-700">{counts.enPreparation}</div>
+          <div className="text-xs text-gray-400 mt-1">En cours</div>
         </div>
 
         {/* Livrées */}
-        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between text-emerald-600 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Livrées</span>
-            <TreePine className="w-4 h-4" />
+        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase text-gray-500">Livrées</span>
+            <div className="w-7 h-7 rounded-lg bg-green-50 text-green-600 flex items-center justify-center">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-2xl font-black text-gray-900">{counts.livre}</div>
-          <p className="text-[11px] text-gray-400 mt-1">Finalisées</p>
+          <div className="text-2xl font-bold text-green-700">{counts.livre}</div>
+          <div className="text-xs text-gray-400 mt-1">Terminées</div>
         </div>
 
-        {/* Total Acomptes Encaissés */}
-        <div className="bg-gradient-to-br from-pink-50 to-white p-4 rounded-xl border border-pink-100 shadow-sm col-span-2 sm:col-span-1 lg:col-span-1 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#E91E8C] mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Acomptes Encaissés</span>
-            <DollarSign className="w-4 h-4" />
+        {/* Total des acomptes encaissés */}
+        <div className="col-span-2 lg:col-span-1 bg-gradient-to-br from-white to-pink-50/30 p-4 rounded-xl border border-pink-100 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase text-[#E91E8C]">Acomptes encaissés</span>
+            <div className="w-7 h-7 rounded-lg bg-pink-100 text-[#E91E8C] flex items-center justify-center">
+              <Sparkles className="w-4 h-4" />
+            </div>
           </div>
-          <div className="text-lg sm:text-xl font-black text-[#D4AF37] truncate">
-            {formatPriceFCFA(counts.totalAcomptes)}
+          <div className="text-xl font-bold text-[#E91E8C] truncate" title={formatPrice(counts.totalAcomptes)}>
+            {formatPrice(counts.totalAcomptes)}
           </div>
-          <p className="text-[11px] text-gray-400 mt-1">Total trésorerie reçue</p>
+          <div className="text-xs text-gray-400 mt-1">Sur réservations actives</div>
         </div>
       </div>
 
-      {/* BARRE D'ACTIONS : EXPORTS & PLANNING */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-gray-800">
-            {filteredReservations.length} réservation{filteredReservations.length > 1 ? 's' : ''} trouvée{filteredReservations.length > 1 ? 's' : ''}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handleCopyPlanning}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
-            title="Copier le planning groupé pour WhatsApp"
-          >
-            {isCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-gray-500" />}
-            <span>{isCopied ? 'Copié !' : 'Copier le planning'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors cursor-pointer"
-            title="Télécharger les réservations filtrées en CSV pour Excel"
-          >
-            <Download className="w-4 h-4" />
-            <span>Exporter CSV</span>
-          </button>
-        </div>
-      </div>
-
-      {/* FILTRES RECHERCHE, STATUT & DATE */}
+      {/* SECTION 2 : Filtres (Recherche, statut, puces de date de livraison) */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Recherche */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Recherche par nom ou téléphone */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Rechercher par nom, téléphone, ville ou formule..."
+              placeholder="Rechercher par nom ou téléphone..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-[#E91E8C] outline-none"
+              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#E91E8C] focus:border-transparent outline-none text-sm"
             />
           </div>
 
-          {/* Filtre Statut */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-[#E91E8C] outline-none bg-white"
-          >
-            <option value="all">Tous les statuts</option>
-            <option value="recu">Reçu</option>
-            <option value="acompte_verse">Acompte versé</option>
-            <option value="en_preparation">En préparation</option>
-            <option value="livre">Livré</option>
-            <option value="annule">Annulé</option>
-          </select>
+          {/* Filtre par statut */}
+          <div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#E91E8C] focus:border-transparent outline-none bg-white text-sm text-gray-700 cursor-pointer"
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="recu">Reçu</option>
+              <option value="acompte_verse">Acompte versé</option>
+              <option value="en_preparation">En préparation</option>
+              <option value="livre">Livré</option>
+              <option value="annule">Annulé</option>
+            </select>
+          </div>
         </div>
 
-        {/* Puces de filtrage par date de livraison */}
-        <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-gray-100">
-          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider mr-1">
-            Date de fête :
+        {/* Puces de date de livraison : Toutes, 24 décembre, 25 décembre, 31 décembre, Autres dates */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-gray-100">
+          <span className="text-xs font-semibold text-gray-500 mr-1 flex items-center gap-1">
+            <Calendar className="w-3.5 h-3.5 text-gray-400" />
+            Livraison :
           </span>
-          <button
-            type="button"
-            onClick={() => setDateFilter('all')}
-            className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-              dateFilter === 'all'
-                ? 'bg-[#E91E8C] text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            Toutes ({reservations.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDateFilter('24')}
-            className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-              dateFilter === '24'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
-            }`}
-          >
-            🎄 24 décembre ({reservations.filter((r) => r.date_livraison?.endsWith('-12-24')).length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDateFilter('25')}
-            className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-              dateFilter === '25'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-            }`}
-          >
-            ⭐ 25 décembre ({reservations.filter((r) => r.date_livraison?.endsWith('-12-25')).length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDateFilter('31')}
-            className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-              dateFilter === '31'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
-            }`}
-          >
-            🎉 31 décembre ({reservations.filter((r) => r.date_livraison?.endsWith('-12-31')).length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDateFilter('autres')}
-            className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-              dateFilter === 'autres'
-                ? 'bg-gray-800 text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            Autres dates
-          </button>
+          {[
+            { id: 'all', label: 'Toutes' },
+            { id: '24', label: '24 décembre' },
+            { id: '25', label: '25 décembre' },
+            { id: '31', label: '31 décembre' },
+            { id: 'autres', label: 'Autres dates' },
+          ].map((chip) => {
+            const isSelected = dateFilter === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => setDateFilter(chip.id as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#E91E8C] text-white shadow-sm'
+                    : 'bg-gray-50 text-gray-600 border border-gray-200 hover:border-gray-300 hover:bg-gray-100'
+                }`}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* TABLEAU DES RÉSERVATIONS (DESKTOP) ET CARTES (MOBILE) */}
+      {/* SECTION 3 : Liste des réservations */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {isLoading ? (
-          <div className="p-16 text-center">
-            <Loader2 className="w-8 h-8 text-[#E91E8C] animate-spin mx-auto mb-3" />
-            <p className="text-sm text-gray-500 font-medium">Chargement des réservations de Noël...</p>
-          </div>
-        ) : filteredReservations.length === 0 ? (
-          <div className="p-16 text-center">
-            <TreePine className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <h3 className="text-base font-bold text-gray-800">Aucune réservation trouvée</h3>
-            <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1">
-              {reservations.length === 0
-                ? "Les réservations effectuées sur le site s'afficheront ici en temps réel."
-                : 'Aucune commande ne correspond aux filtres actuellement sélectionnés.'}
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* Version Desktop Table */}
-            <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[900px]">
-                <thead>
-                  <tr className="bg-gray-50 text-gray-500 text-xs border-b border-gray-100 font-semibold uppercase tracking-wider">
-                    <th className="p-4">Client</th>
-                    <th className="p-4">Formule</th>
-                    <th className="p-4">Livraison prévue</th>
-                    <th className="p-4">Lieu</th>
-                    <th className="p-4">Statut</th>
-                    <th className="p-4">Acompte</th>
-                    <th className="p-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-sm">
-                  {paginatedReservations.map((res) => (
-                    <tr
-                      key={res.id}
-                      onClick={() => setSelectedRes(res)}
-                      className="hover:bg-pink-50/20 transition-colors cursor-pointer"
-                    >
-                      {/* Client */}
-                      <td className="p-4">
-                        <div className="font-bold text-gray-900">{res.nom}</div>
-                        <div className="text-xs text-gray-500 font-mono mt-0.5">{res.telephone}</div>
-                        {res.email && <div className="text-[11px] text-gray-400">{res.email}</div>}
-                      </td>
-
-                      {/* Formule */}
-                      <td className="p-4">
-                        <div className="font-semibold text-[#E91E8C]">{res.pack_nom || 'Sur mesure'}</div>
-                        <div className="text-xs text-gray-500">{res.type_prestation || 'Surprise'}</div>
-                      </td>
-
-                      {/* Livraison */}
-                      <td className="p-4">
-                        <div className="font-semibold text-gray-800">
-                          {formatDateDisplay(res.date_livraison)}
-                        </div>
-                        <div className="text-xs text-stone-500">{res.heure_livraison || 'Horaire libre'}</div>
-                        {getUrgencyBadges(res.date_livraison)}
-                      </td>
-
-                      {/* Lieu */}
-                      <td className="p-4">
-                        <div className="text-gray-800 font-medium line-clamp-1">{res.ville_lieu || '-'}</div>
-                      </td>
-
-                      {/* Statut */}
-                      <td className="p-4">
-                        {getStatusBadge(res.statut)}
-                      </td>
-
-                      {/* Acompte */}
-                      <td className="p-4 font-mono font-semibold text-stone-700">
-                        {res.acompte > 0 ? (
-                          <span className="text-emerald-700">{formatPriceFCFA(res.acompte)}</span>
-                        ) : (
-                          <span className="text-gray-400">0 FCFA</span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleWhatsAppCustomer(res)}
-                            title="Contacter sur WhatsApp"
-                            className="p-2 text-[#25D366] hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                          >
-                            <MessageCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedRes(res)}
-                            title="Voir la fiche complète"
-                            className="p-2 text-gray-400 hover:text-[#E91E8C] hover:bg-pink-50 rounded-lg transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Version Mobile (Cartes lisibles) */}
-            <div className="lg:hidden divide-y divide-gray-100">
-              {paginatedReservations.map((res) => (
-                <div
-                  key={res.id}
-                  onClick={() => setSelectedRes(res)}
-                  className="p-4 hover:bg-pink-50/20 transition-colors cursor-pointer space-y-3"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-bold text-gray-900 text-base">{res.nom}</h4>
-                      <p className="text-xs text-gray-500 font-mono">{res.telephone}</p>
+        {/* Vue Desktop : Tableau */}
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[900px]">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-100">
+                <th className="p-4 font-semibold">Client</th>
+                <th className="p-4 font-semibold">Téléphone</th>
+                <th className="p-4 font-semibold">Formule</th>
+                <th className="p-4 font-semibold">Date & Heure</th>
+                <th className="p-4 font-semibold">Ville</th>
+                <th className="p-4 font-semibold">Statut</th>
+                <th className="p-4 font-semibold text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="p-12 text-center">
+                    <div className="flex flex-col items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-[#E91E8C] animate-spin mb-2" />
+                      <span className="text-sm text-gray-500 font-medium">
+                        Chargement des réservations de Noël...
+                      </span>
                     </div>
-                    {getStatusBadge(res.statut)}
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-stone-700 bg-stone-50 p-2.5 rounded-lg border border-stone-100">
-                    <div>
-                      <span className="font-bold text-[#E91E8C] block">{res.pack_nom || 'Sur mesure'}</span>
-                      <span className="text-[11px] text-stone-500">{res.ville_lieu}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-bold text-gray-900 block">{formatDateDisplay(res.date_livraison)}</span>
-                      <span className="text-[11px] text-stone-500">{res.heure_livraison}</span>
+                  </td>
+                </tr>
+              ) : reservations.length > 0 ? (
+                reservations.map((res) => (
+                  <tr
+                    key={res.id}
+                    onClick={() => setSelectedRes(res)}
+                    className="hover:bg-pink-50/20 cursor-pointer transition-colors"
+                  >
+                    <td className="p-4">
+                      <p className="font-bold text-gray-900">{res.nom}</p>
+                      {res.email && <p className="text-xs text-gray-400">{res.email}</p>}
+                    </td>
+                    <td className="p-4">
+                      <p className="text-sm text-gray-800 font-medium">{res.telephone}</p>
+                    </td>
+                    <td className="p-4">
+                      <span className="font-semibold text-sm text-[#E91E8C]">
+                        {res.pack_nom ? `Pack ${res.pack_nom}` : 'Sur mesure'}
+                      </span>
+                      {res.prix_pack !== null && res.prix_pack !== undefined && (
+                        <p className="text-xs text-gray-500">{formatPrice(res.prix_pack)}</p>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <div className="text-sm font-semibold text-gray-800">
+                        {formatDateLivraison(res.date_livraison)}
+                      </div>
+                      {res.heure_livraison && (
+                        <p className="text-xs text-gray-500">{res.heure_livraison}</p>
+                      )}
                       {getUrgencyBadges(res.date_livraison)}
+                    </td>
+                    <td className="p-4 text-sm text-gray-700">
+                      {res.ville_lieu || '-'}
+                    </td>
+                    <td className="p-4">
+                      {getStatusBadge(res.statut)}
+                    </td>
+                    <td className="p-4 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedRes(res);
+                        }}
+                        className="p-2 text-gray-400 hover:text-[#E91E8C] hover:bg-pink-50 rounded-lg transition-colors cursor-pointer"
+                        title="Voir la fiche détaillée"
+                      >
+                        <Eye className="w-5 h-5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="p-12 text-center">
+                    <div className="flex flex-col items-center justify-center text-gray-400">
+                      <Calendar className="w-12 h-12 mb-3 text-gray-300" />
+                      <p className="text-base font-semibold text-gray-700">
+                        Aucune réservation de Noël pour le moment
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {searchTerm || statusFilter !== 'all' || dateFilter !== 'all'
+                          ? 'Aucun résultat ne correspond à vos filtres actuels.'
+                          : 'Les réservations passées sur le site public apparaîtront ici.'}
+                      </p>
                     </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Vue Mobile : Cartes lisibles */}
+        <div className="md:hidden p-3 space-y-3">
+          {isLoading ? (
+            <div className="p-12 text-center flex flex-col items-center justify-center">
+              <Loader2 className="w-8 h-8 text-[#E91E8C] animate-spin mb-2" />
+              <span className="text-sm text-gray-500 font-medium">Chargement...</span>
+            </div>
+          ) : reservations.length > 0 ? (
+            reservations.map((res) => (
+              <div
+                key={res.id}
+                onClick={() => setSelectedRes(res)}
+                className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs hover:border-[#E91E8C]/40 active:scale-[0.99] transition-all cursor-pointer"
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div>
+                    <h4 className="font-bold text-gray-900 text-base">{res.nom}</h4>
+                    <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
+                      <Phone className="w-3.5 h-3.5 text-gray-400" />
+                      {res.telephone}
+                    </p>
                   </div>
+                  <div>{getStatusBadge(res.statut)}</div>
+                </div>
 
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-xs text-stone-500">
-                      Acompte : <strong className="text-emerald-700">{formatPriceFCFA(res.acompte)}</strong>
+                <div className="p-2.5 bg-gray-50 rounded-lg text-xs space-y-1 mb-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500">Formule :</span>
+                    <span className="font-semibold text-[#E91E8C]">
+                      {res.pack_nom ? `Pack ${res.pack_nom}` : 'Sur mesure'}
                     </span>
-
-                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => handleWhatsAppCustomer(res)}
-                        className="p-2 bg-emerald-50 text-[#25D366] rounded-lg text-xs font-semibold flex items-center gap-1"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        <span>WhatsApp</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRes(res)}
-                        className="p-2 bg-pink-50 text-[#E91E8C] rounded-lg text-xs font-semibold flex items-center gap-1"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>Détails</span>
-                      </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500">Livraison :</span>
+                    <span className="font-medium text-gray-800">
+                      {formatDateLivraison(res.date_livraison)} {res.heure_livraison ? `à ${res.heure_livraison}` : ''}
+                    </span>
+                  </div>
+                  {res.ville_lieu && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-500">Lieu :</span>
+                      <span className="text-gray-700">{res.ville_lieu}</span>
                     </div>
+                  )}
+                  <div className="flex items-center justify-between pt-1 border-t border-gray-200/60">
+                    <span className="text-gray-500">Acompte :</span>
+                    <span className="font-semibold text-emerald-700">
+                      {formatPrice(res.acompte)}
+                    </span>
                   </div>
                 </div>
-              ))}
-            </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50 text-xs sm:text-sm">
-                <p className="text-gray-500">
-                  Page <span className="font-bold text-gray-800">{currentPage}</span> sur{' '}
-                  <span className="font-bold text-gray-800">{totalPages}</span>
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                <div className="flex items-center justify-between">
+                  <div>{getUrgencyBadges(res.date_livraison)}</div>
+                  <span className="text-xs font-semibold text-[#E91E8C] flex items-center gap-1">
+                    Voir détails
+                    <Eye className="w-3.5 h-3.5" />
+                  </span>
                 </div>
               </div>
-            )}
-          </>
+            ))
+          ) : (
+            <div className="p-8 text-center text-gray-400">
+              <Calendar className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm font-semibold text-gray-700">
+                Aucune réservation de Noël pour le moment
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Pagination reprenant le style de Reservations.tsx */}
+        {totalPages > 1 && (
+          <div className="p-4 border-t border-gray-100 flex items-center justify-between bg-gray-50">
+            <p className="text-sm text-gray-500">
+              Page <span className="font-medium text-gray-800">{currentPage}</span> sur{' '}
+              <span className="font-medium text-gray-800">{totalPages}</span>
+              <span className="hidden sm:inline text-gray-400 ml-2">
+                ({totalCount} réservation{totalCount > 1 ? 's' : ''})
+              </span>
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                title="Page précédente"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                title="Page suivante"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* MODALE FICHE DÉTAIL D'UNE RÉSERVATION */}
+      {/* SECTION 4 : Fiche de détail en modale */}
       <AnimatePresence>
         {selectedRes && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
-            <div 
-              className="fixed inset-0 -z-10" 
-              onClick={() => setSelectedRes(null)} 
-              aria-hidden="true" 
-            />
-
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 20 }}
-              className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-2xl my-6 overflow-hidden flex flex-col"
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-2xl my-8 overflow-hidden"
             >
-              {/* Header */}
-              <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-pink-50 text-[#E91E8C] rounded-lg">
-                    <TreePine className="w-5 h-5" />
+              {/* Entête modale */}
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-white via-white to-pink-50/20">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-pink-50 text-[#E91E8C] rounded-xl">
+                    <User className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900">Détail de la réservation Noël</h3>
-                    <p className="text-xs text-gray-500 font-mono">ID : {selectedRes.id.slice(0, 8)}...</p>
+                    <h3 className="text-lg font-bold text-gray-900">{selectedRes.nom}</h3>
+                    <p className="text-xs text-gray-500">
+                      Dossier créé le{' '}
+                      {new Date(selectedRes.created_at).toLocaleDateString('fr-FR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
                   </div>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => setSelectedRes(null)}
-                  className="p-2 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="p-2 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Formulaire / Détails */}
-              <div className="p-6 space-y-6 overflow-y-auto max-h-[75vh]">
-                {/* Info Client & Événement */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-stone-50 p-4 rounded-xl border border-stone-200">
-                  {/* Client */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5" />
-                      Client
-                    </h4>
-                    <div>
-                      <span className="text-xs text-stone-500 block">Nom complet</span>
-                      <span className="text-sm font-bold text-gray-900">{selectedRes.nom}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-stone-500 block">Téléphone</span>
-                      <span className="text-sm font-semibold text-gray-900 font-mono">{selectedRes.telephone}</span>
-                    </div>
-                    {selectedRes.email && (
-                      <div>
-                        <span className="text-xs text-stone-500 block">Email</span>
-                        <span className="text-sm text-gray-800">{selectedRes.email}</span>
-                      </div>
+              {/* Contenu modale */}
+              <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+                {/* Récapitulatif prestation */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-gray-50 border border-gray-100">
+                  <div>
+                    <span className="text-xs font-semibold uppercase text-gray-400">Formule</span>
+                    <p className="font-bold text-[#E91E8C] text-base mt-0.5">
+                      {selectedRes.pack_nom ? `Pack ${selectedRes.pack_nom}` : 'Sur mesure'}
+                    </p>
+                    {selectedRes.prix_pack !== null && selectedRes.prix_pack !== undefined && (
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        Tarif formule : <strong>{formatPrice(selectedRes.prix_pack)}</strong>
+                      </p>
                     )}
                   </div>
 
-                  {/* Commande */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <TreePine className="w-3.5 h-3.5" />
-                      Formule Noël
-                    </h4>
-                    <div>
-                      <span className="text-xs text-stone-500 block">Formule choisie</span>
-                      <span className="text-sm font-bold text-[#E91E8C]">{selectedRes.pack_nom || 'Sur mesure'}</span>
+                  <div>
+                    <span className="text-xs font-semibold uppercase text-gray-400">Prestation</span>
+                    <p className="font-medium text-gray-800 text-sm mt-0.5">
+                      {selectedRes.type_prestation || 'Non renseigné'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <span className="text-xs font-semibold uppercase text-gray-400">Livraison prévue</span>
+                    <p className="font-semibold text-gray-900 text-sm mt-0.5">
+                      {formatDateLivraison(selectedRes.date_livraison)}
+                    </p>
+                    {selectedRes.heure_livraison && (
+                      <p className="text-xs text-gray-600">Créneau : {selectedRes.heure_livraison}</p>
+                    )}
+                    {getUrgencyBadges(selectedRes.date_livraison)}
+                  </div>
+
+                  <div>
+                    <span className="text-xs font-semibold uppercase text-gray-400">Lieu / Ville</span>
+                    <p className="font-medium text-gray-800 text-sm mt-0.5 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                      {selectedRes.ville_lieu || 'Non renseigné'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Coordonnées */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    Coordonnées du client
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div className="p-3 bg-white border border-gray-200 rounded-lg flex items-center gap-2.5">
+                      <Phone className="w-4 h-4 text-[#E91E8C]" />
+                      <span className="font-medium text-gray-800">{selectedRes.telephone}</span>
                     </div>
-                    <div>
-                      <span className="text-xs text-stone-500 block">Prestation</span>
-                      <span className="text-sm text-gray-800">{selectedRes.type_prestation || 'Non précisé'}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-stone-500 block">Prix estimé au moment de la demande</span>
-                      <span className="text-sm font-semibold text-[#D4AF37]">
-                        {selectedRes.prix_pack ? formatPriceFCFA(selectedRes.prix_pack) : 'Sur devis'}
+
+                    <div className="p-3 bg-white border border-gray-200 rounded-lg flex items-center gap-2.5">
+                      <Mail className="w-4 h-4 text-[#E91E8C]" />
+                      <span className="text-gray-700 truncate">
+                        {selectedRes.email || 'Email non précisé'}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Date & Lieu de livraison */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-3.5 rounded-xl border border-gray-200">
-                    <span className="text-xs text-gray-500 block mb-1 flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-stone-400" />
-                      Date de livraison
-                    </span>
-                    <span className="text-sm font-bold text-gray-900">
-                      {formatDateDisplay(selectedRes.date_livraison)}
-                    </span>
-                    <div className="mt-1">
-                      {getUrgencyBadges(selectedRes.date_livraison)}
-                    </div>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-gray-200">
-                    <span className="text-xs text-gray-500 block mb-1 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-stone-400" />
-                      Créneau horaire
-                    </span>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {selectedRes.heure_livraison || 'Non précisé'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Lieu & Budget */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-3.5 rounded-xl border border-gray-200">
-                    <span className="text-xs text-gray-500 block mb-1 flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-stone-400" />
-                      Lieu / Ville
-                    </span>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {selectedRes.ville_lieu || 'Non précisé'}
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl border border-gray-200">
-                    <span className="text-xs text-gray-500 block mb-1 flex items-center gap-1">
-                      <DollarSign className="w-3.5 h-3.5 text-stone-400" />
-                      Budget indicatif client
-                    </span>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {selectedRes.budget || 'Non précisé'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Notes */}
-                {selectedRes.notes && (
-                  <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-200">
-                    <span className="text-xs font-bold text-amber-800 block mb-1 flex items-center gap-1">
-                      <FileText className="w-3.5 h-3.5" />
-                      Notes & Précisions client :
-                    </span>
-                    <p className="text-xs sm:text-sm text-stone-700 whitespace-pre-wrap">
-                      {selectedRes.notes}
-                    </p>
+                {/* Budget et Notes */}
+                {(selectedRes.budget || selectedRes.notes) && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                      Informations complémentaires
+                    </h4>
+                    {selectedRes.budget && (
+                      <div className="text-xs text-gray-700 p-3 bg-white border border-gray-200 rounded-lg">
+                        <strong className="text-gray-900">Budget indicatif :</strong> {selectedRes.budget}
+                      </div>
+                    )}
+                    {selectedRes.notes && (
+                      <div className="text-xs text-gray-700 p-3 bg-white border border-gray-200 rounded-lg">
+                        <strong className="text-gray-900">Notes & précisions du client :</strong>
+                        <p className="mt-1 whitespace-pre-wrap text-gray-600">{selectedRes.notes}</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Actions directes : Appel & WhatsApp */}
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => handleWhatsAppCustomer(selectedRes)}
-                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold text-white bg-[#25D366] hover:bg-[#20ba59] shadow-sm transition-all cursor-pointer"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    <span>WhatsApp client</span>
-                  </button>
-
-                  <a
-                    href={`tel:${selectedRes.telephone.replace(/[^0-9+]/g, '')}`}
-                    className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 shadow-sm transition-all cursor-pointer"
-                  >
-                    <Phone className="w-4 h-4" />
-                    <span>Appeler</span>
-                  </a>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteReservation(selectedRes.id, selectedRes.nom)}
-                    className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                    title="Supprimer la réservation"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* FORMULAIRE GESTION STATUT & ACOMPTE */}
-                <form onSubmit={handleSaveModal} className="pt-4 border-t border-gray-200 space-y-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    Gestion de la commande
+                {/* Formulaire de mise à jour (Statut et Acompte uniquement) */}
+                <form onSubmit={handleSaveModal} className="p-4 bg-pink-50/30 rounded-xl border border-pink-100 space-y-4">
+                  <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#E91E8C]" />
+                    Mise à jour du dossier (Statut & Acompte)
                   </h4>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Sélecteur de statut */}
                     <div>
                       <label className="block text-xs font-semibold text-gray-700 mb-1">
-                        Statut
+                        Statut de la réservation
                       </label>
                       <select
                         value={modalStatut}
                         onChange={(e) => setModalStatut(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-[#E91E8C] outline-none"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-[#E91E8C] outline-none cursor-pointer"
                       >
                         <option value="recu">Reçu</option>
                         <option value="acompte_verse">Acompte versé</option>
@@ -1091,10 +877,10 @@ export function NoelReservations({ onCountsUpdated, showToast }: NoelReservation
                       </select>
                     </div>
 
-                    {/* Acompte numérique */}
+                    {/* Champ acompte */}
                     <div>
                       <label className="block text-xs font-semibold text-gray-700 mb-1">
-                        Acompte versé (en FCFA)
+                        Acompte encaissé (FCFA)
                       </label>
                       <input
                         type="number"
@@ -1102,34 +888,48 @@ export function NoelReservations({ onCountsUpdated, showToast }: NoelReservation
                         step="500"
                         value={modalAcompte}
                         onChange={(e) => setModalAcompte(e.target.value)}
-                        placeholder="Ex : 10000"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-[#E91E8C] outline-none"
+                        placeholder="Ex : 5000"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 focus:ring-2 focus:ring-[#E91E8C] outline-none"
                       />
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-3 pt-2">
+                  {/* Actions du formulaire */}
+                  <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-pink-100/60">
                     <button
                       type="button"
-                      onClick={() => setSelectedRes(null)}
-                      className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                      onClick={() => handleDelete(selectedRes.id)}
+                      disabled={isDeleting}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                     >
-                      Fermer
+                      <Trash2 className="w-4 h-4" />
+                      <span>Supprimer la réservation</span>
                     </button>
-                    <button
-                      type="submit"
-                      disabled={isSavingModal}
-                      className="inline-flex items-center justify-center gap-2 px-6 py-2 rounded-lg text-sm font-bold text-white bg-[#E91E8C] hover:bg-[#d8157f] disabled:opacity-50 transition-all shadow-sm cursor-pointer"
-                    >
-                      {isSavingModal ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Enregistrement...</span>
-                        </>
-                      ) : (
-                        <span>Enregistrer les modifications</span>
-                      )}
-                    </button>
+
+                    <div className="w-full sm:w-auto flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRes(null)}
+                        className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Annuler
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={isSavingModal}
+                        className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold text-white bg-[#E91E8C] hover:bg-[#d8157f] shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingModal ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Enregistrement...</span>
+                          </>
+                        ) : (
+                          <span>Enregistrer</span>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </form>
               </div>
