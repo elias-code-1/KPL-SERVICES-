@@ -1,12 +1,17 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
+export const KPL_WHATSAPP_PHONE = "22891333468";
+
+export function getWhatsAppUrl(message: string): string {
+  return `https://wa.me/${KPL_WHATSAPP_PHONE}?text=${encodeURIComponent(message)}`;
+}
+
 export function WhatsAppButton() {
   const [isHovered, setIsHovered] = useState(false);
   
-  const phoneNumber = "22891333468";
   const message = "Bonjour KPL SERVICES, je souhaite avoir plus d'informations.";
-  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+  const whatsappUrl = getWhatsAppUrl(message);
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex items-center">

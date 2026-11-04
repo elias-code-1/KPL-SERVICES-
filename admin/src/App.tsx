@@ -11,8 +11,10 @@ import AdminRealisations from './pages/Realisations';
 import AdminGalerie from './pages/Galerie';
 import Temoignages from './pages/Temoignages';
 import Parametres from './pages/Parametres';
+import Noel from './pages/Noel';
 import ProtectedRoute from './components/ProtectedRoute';
 import DashboardLayout from './components/DashboardLayout';
+import { ChristmasProvider } from './context/ChristmasContext';
 
 function TitleUpdater() {
   const location = useLocation();
@@ -25,6 +27,7 @@ function TitleUpdater() {
       case '/': title = 'Login'; break;
       case '/dashboard': title = 'Dashboard'; break;
       case '/reservations': title = 'Réservations'; break;
+      case '/noel': title = 'Noël'; break;
       case '/messages': title = 'Messages'; break;
       case '/realisations': title = 'Réalisations'; break;
       case '/galerie': title = 'Galerie'; break;
@@ -56,31 +59,34 @@ function AdminLayoutWrapper() {
 
 function App() {
   return (
-    <Router>
-      <TitleUpdater />
-      <Routes>
-        <Route element={<AdminLayoutWrapper />}>
-          <Route path="/" element={<Login />} />
-          <Route path="/update-password" element={<UpdatePassword />} />
-          
-          <Route 
-            element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/reservations" element={<Reservations />} />
-            <Route path="/messages" element={<Messages />} />
-            <Route path="/realisations" element={<AdminRealisations />} />
-            <Route path="/galerie" element={<AdminGalerie />} />
-            <Route path="/temoignages" element={<Temoignages />} />
-            <Route path="/parametres" element={<Parametres />} />
+    <ChristmasProvider>
+      <Router>
+        <TitleUpdater />
+        <Routes>
+          <Route element={<AdminLayoutWrapper />}>
+            <Route path="/" element={<Login />} />
+            <Route path="/update-password" element={<UpdatePassword />} />
+            
+            <Route 
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/reservations" element={<Reservations />} />
+              <Route path="/noel" element={<Noel />} />
+              <Route path="/messages" element={<Messages />} />
+              <Route path="/realisations" element={<AdminRealisations />} />
+              <Route path="/galerie" element={<AdminGalerie />} />
+              <Route path="/temoignages" element={<Temoignages />} />
+              <Route path="/parametres" element={<Parametres />} />
+            </Route>
           </Route>
-        </Route>
-      </Routes>
-    </Router>
+        </Routes>
+      </Router>
+    </ChristmasProvider>
   );
 }
 

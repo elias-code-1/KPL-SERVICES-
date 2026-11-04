@@ -2,6 +2,8 @@ import { BrowserRouter as Router, Routes, Route, Outlet, useLocation, Link } fro
 import { useEffect } from 'react';
 import { Navbar, Footer } from './components/layout';
 import { WhatsAppButton } from './components/ui';
+import { NoelProvider, useNoel } from './context/NoelContext';
+import { ChristmasProvider } from './context/ChristmasContext';
 
 import Accueil from './pages/Accueil';
 import APropos from './pages/APropos';
@@ -13,6 +15,7 @@ import Equipe from './pages/Equipe';
 import Contact from './pages/Contact';
 import Reservation from './pages/Reservation';
 import AvisClient from './pages/AvisClient';
+import NoelPage from './pages/Noel';
 
 function Simple404() {
   useEffect(() => {
@@ -44,6 +47,7 @@ function TitleUpdater() {
       case '/a-propos': title = 'À propos'; break;
       case '/services': title = 'Services'; break;
       case '/tarifs': title = 'Tarifs'; break;
+      case '/noel': title = 'Noël'; break;
       case '/realisations': title = 'Réalisations'; break;
       case '/galerie': title = 'Galerie'; break;
       case '/equipe': title = 'Équipe'; break;
@@ -61,6 +65,8 @@ function TitleUpdater() {
 }
 
 function PublicLayout() {
+  const { isNoel } = useNoel();
+
   return (
     <div className="min-h-screen flex flex-col relative">
       <Navbar />
@@ -75,24 +81,29 @@ function PublicLayout() {
 
 function App() {
   return (
-    <Router>
-      <TitleUpdater />
-      <Routes>
-        <Route path="/avis" element={<AvisClient />} />
-        <Route element={<PublicLayout />}>
-          <Route path="/" element={<Accueil />} />
-          <Route path="/a-propos" element={<APropos />} />
-          <Route path="/services" element={<Services />} />
-          <Route path="/tarifs" element={<Tarifs />} />
-          <Route path="/realisations" element={<Realisations />} />
-          <Route path="/galerie" element={<Galerie />} />
-          <Route path="/equipe" element={<Equipe />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/reservation" element={<Reservation />} />
-        </Route>
-        <Route path="*" element={<Simple404 />} />
-      </Routes>
-    </Router>
+    <NoelProvider>
+      <ChristmasProvider>
+        <Router>
+          <TitleUpdater />
+          <Routes>
+            <Route path="/avis" element={<AvisClient />} />
+            <Route element={<PublicLayout />}>
+              <Route path="/" element={<Accueil />} />
+              <Route path="/a-propos" element={<APropos />} />
+              <Route path="/services" element={<Services />} />
+              <Route path="/tarifs" element={<Tarifs />} />
+              <Route path="/noel" element={<NoelPage />} />
+              <Route path="/realisations" element={<Realisations />} />
+              <Route path="/galerie" element={<Galerie />} />
+              <Route path="/equipe" element={<Equipe />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/reservation" element={<Reservation />} />
+            </Route>
+            <Route path="*" element={<Simple404 />} />
+          </Routes>
+        </Router>
+      </ChristmasProvider>
+    </NoelProvider>
   );
 }
 

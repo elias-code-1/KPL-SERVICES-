@@ -1,12 +1,16 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { Palette, Gift, Sparkles, ClipboardList, Armchair, ArrowRight } from 'lucide-react';
+import { Palette, Gift, Sparkles, ClipboardList, Armchair, ArrowRight, TreePine } from 'lucide-react';
 import TestimonialsSection from './TestimonialsSection';
 import { SEO } from '../../components/SEO';
+import { useChristmas } from '../../context/ChristmasContext';
+import { useNoel } from '../../context/NoelContext';
 
 export default function Accueil() {
   const { t } = useTranslation();
+  const { config } = useChristmas();
+  const { isNoel } = useNoel();
 
   const services = [
     {
@@ -118,8 +122,17 @@ export default function Accueil() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.8, ease: "easeOut" }}
-            className="flex flex-col sm:flex-row gap-4"
+            className="flex flex-col sm:flex-row gap-4 items-center justify-center flex-wrap"
           >
+            {isNoel && (
+              <Link
+                to="/noel"
+                className="px-8 py-4 bg-gradient-to-r from-[#9B1B30] to-[#E91E8C] hover:opacity-95 text-white rounded-md text-lg font-bold transition-all shadow-xl hover:shadow-2xl border border-[#F4E3A1]/40 flex items-center gap-2"
+              >
+                <TreePine className="w-5 h-5 text-[#F4E3A1]" />
+                <span>Réserver ma surprise de Noël</span>
+              </Link>
+            )}
             <Link
               to="/reservation"
               className="px-8 py-4 bg-primary hover:bg-primary/90 text-white rounded-md text-lg font-medium transition-colors shadow-lg hover:shadow-xl"

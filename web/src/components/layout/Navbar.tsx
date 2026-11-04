@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Menu, X } from 'lucide-react';
+import { useNoel } from '../../context/NoelContext';
+import { MiniSapin } from '../noel/assets';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
   const { t, i18n } = useTranslation();
+  const { isNoel } = useNoel();
 
   // Fallback to 'fr' if i18n is not fully initialized yet
   const currentLang = i18n.language || 'fr';
@@ -20,6 +23,15 @@ export function Navbar() {
     { name: t('nav.about'), path: '/a-propos' },
     { name: t('nav.services'), path: '/services' },
     { name: t('nav.pricing'), path: '/tarifs' },
+    ...(isNoel
+      ? [
+          {
+            name: 'Noël',
+            path: '/noel',
+            icon: <MiniSapin size={16} className="text-[#1F5F46] shrink-0" />
+          }
+        ]
+      : []),
     { name: t('nav.work'), path: '/realisations' },
     { name: t('nav.gallery'), path: '/galerie' },
     { name: t('nav.team'), path: '/equipe' },
@@ -54,13 +66,14 @@ export function Navbar() {
                   <Link
                     key={link.path}
                     to={link.path}
-                    className={`text-sm font-medium transition-colors duration-200 whitespace-nowrap ${
+                    className={`inline-flex items-center gap-1.5 text-sm font-medium transition-colors duration-200 whitespace-nowrap ${
                       isActive
                         ? 'text-primary border-b-2 border-primary pb-1'
                         : 'text-text-gray hover:text-primary pb-1 border-b-2 border-transparent'
                     }`}
                   >
-                    {link.name}
+                    {'icon' in link && (link as any).icon}
+                    <span>{link.name}</span>
                   </Link>
                 );
               })}
@@ -149,13 +162,14 @@ export function Navbar() {
                   key={link.path}
                   to={link.path}
                   onClick={closeMenu}
-                  className={`block px-3 py-4 text-lg font-medium rounded-md ${
+                  className={`flex items-center gap-2 px-3 py-4 text-lg font-medium rounded-md ${
                     isActive
                       ? 'text-primary bg-primary/5 border-l-4 border-primary'
                       : 'text-text-gray hover:text-primary hover:bg-gray-50 border-l-4 border-transparent'
                   }`}
                 >
-                  {link.name}
+                  {'icon' in link && (link as any).icon}
+                  <span>{link.name}</span>
                 </Link>
               );
             })}

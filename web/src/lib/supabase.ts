@@ -7,7 +7,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { 
     storageKey: 'kpl-auth', 
     storage: localStorage, 
-    cookieDomain: '.kpl-services.com', 
     persistSession: true, 
     autoRefreshToken: true 
   } 
