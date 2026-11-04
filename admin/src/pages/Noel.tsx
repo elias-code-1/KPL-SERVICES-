@@ -118,6 +118,9 @@ export default function Noel() {
   const [texteBanniere, setTexteBanniere] = useState<string>(DEFAULT_SETTINGS.texte_banniere);
   const [dateLimiteCommandes, setDateLimiteCommandes] = useState<string>('');
 
+  // Persisted state from DB to power the live indicator ACTIF / INACTIF
+  const [persistedSettings, setPersistedSettings] = useState<NoelSettings>(DEFAULT_SETTINGS);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -170,6 +173,7 @@ export default function Noel() {
       setDateFin(merged.date_fin || DEFAULT_SETTINGS.date_fin);
       setTexteBanniere(merged.texte_banniere || DEFAULT_SETTINGS.texte_banniere);
       setDateLimiteCommandes(isoToDatetimeLocal(merged.date_limite_commandes));
+      setPersistedSettings(merged);
     } catch (err: any) {
       console.error('Erreur chargement réglages Noël:', err);
       setFetchError(err.message || 'Impossible de contacter Supabase pour lire la table site_settings.');
@@ -248,6 +252,49 @@ export default function Noel() {
   // Sauvegarde des réglages du mode Noël
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (import.meta.env.DEV) {
+      let hostname = '';
+      try {
+        hostname = new URL(import.meta.env.VITE_SUPABASE_URL).hostname;
+      } catch {
+        hostname = 'invalide';
+      }
+      console.log('[Noël] Clic Enregistrer:', {
+        mode,
+        dateDebut,
+        dateFin,
+        texteBanniere,
+        dateLimiteCommandes,
+        supabaseHost: hostname,
+      });
+    }
+
+    // Validation explicite pour éviter tout blocage silencieux
+    if (!dateDebut || !dateFin) {
+      showToast('Veuillez renseigner les dates de début et de fin.', 'error');
+      return;
+    }
+    if (!texteBanniere.trim()) {
+      showToast('Veuillez renseigner le texte de la bannière.', 'error');
+      return;
+    }
+
+    // Vérification de la session active
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session) {
+        showToast('Session expirée, reconnectez-vous', 'error');
+        if (import.meta.env.DEV) {
+          console.warn('[Noël] Session expirée ou absente:', sessionError);
+        }
+        return;
+      }
+    } catch (sessionErr: any) {
+      showToast('Session expirée, reconnectez-vous', 'error');
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -259,7 +306,7 @@ export default function Noel() {
         date_limite_commandes: datetimeLocalToIso(dateLimiteCommandes),
       };
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('site_settings')
         .upsert(
           {
@@ -268,14 +315,41 @@ export default function Noel() {
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'key' }
-        );
+        )
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (import.meta.env.DEV) {
+        console.log('[Noël] Résultat upsert:', { data, error });
+      }
+
+      if (error || !data) {
+        const code = error?.code ? ` [Code: ${error.code}]` : '';
+        const msg = error?.message || 'Aucune ligne retournée après enregistrement.';
+        showToast(`Erreur Supabase${code} : ${msg}`, 'error');
+        return;
+      }
+
+      // Après un succès, relis la ligne depuis la base et mets l'indicateur ACTIF ou INACTIF à jour à partir de cette lecture
+      const { data: reloadedData, error: reloadError } = await supabase
+        .from('site_settings')
+        .select('value')
+        .eq('key', 'noel')
+        .single();
+
+      const confirmedValue = ((!reloadError && reloadedData?.value) ? reloadedData.value : data.value) as NoelSettings;
+      setPersistedSettings(confirmedValue);
+      setMode(confirmedValue.mode || DEFAULT_SETTINGS.mode);
+      setDateDebut(confirmedValue.date_debut || DEFAULT_SETTINGS.date_debut);
+      setDateFin(confirmedValue.date_fin || DEFAULT_SETTINGS.date_fin);
+      setTexteBanniere(confirmedValue.texte_banniere || DEFAULT_SETTINGS.texte_banniere);
+      setDateLimiteCommandes(isoToDatetimeLocal(confirmedValue.date_limite_commandes));
 
       showToast('Réglages de Noël enregistrés avec succès !', 'success');
     } catch (err: any) {
       console.error('Erreur enregistrement réglages Noël:', err);
-      showToast(err.message || "Erreur lors de l'enregistrement dans Supabase", 'error');
+      const code = err?.code ? ` [Code: ${err.code}]` : '';
+      showToast(`Erreur${code} : ${err?.message || "Erreur lors de l'enregistrement dans Supabase"}`, 'error');
     } finally {
       setSaving(false);
     }
@@ -495,7 +569,11 @@ export default function Noel() {
     }
   };
 
-  const isCurrentlyActive = computeIsNoel(mode, dateDebut, dateFin);
+  const isCurrentlyActive = computeIsNoel(
+    persistedSettings.mode,
+    persistedSettings.date_debut,
+    persistedSettings.date_fin
+  );
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -643,7 +721,7 @@ export default function Noel() {
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSaveSettings} className="p-6 space-y-6">
+                <form onSubmit={handleSaveSettings} noValidate className="p-6 space-y-6">
                   {/* Segmented Mode Selector */}
                   <div>
                     <label className="block text-sm font-semibold text-gray-800 mb-2">
@@ -794,7 +872,7 @@ export default function Noel() {
                     <button
                       type="submit"
                       disabled={saving}
-                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#E91E8C] hover:bg-[#d8157f] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
+                      className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-[#E91E8C] hover:bg-[#d8157f] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm transition-all"
                     >
                       {saving ? (
                         <>

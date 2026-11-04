@@ -63,14 +63,6 @@ export function ChristmasProvider({ children }: { children: React.ReactNode }) {
     const updated = { ...config, ...newConfig };
     setConfig(updated);
     localStorage.setItem('kpl_christmas_config', JSON.stringify(updated));
-
-    try {
-      await supabase
-        .from('site_settings')
-        .upsert({ key: 'christmas_config', value: updated, updated_at: new Date().toISOString() });
-    } catch {
-      // Fallback local
-    }
   };
 
   const toggleChristmas = async () => {
